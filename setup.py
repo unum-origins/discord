@@ -10,11 +10,12 @@ if version is None:
         version = version_file.read().strip()
 
 setup(
-    name="unum-origins-discord",
+    name="unum-discord",
     version=version,
     package_dir = {'': 'daemon/lib'},
-    py_modules = ['unum.origins.discord'],
+    py_modules = ['unum_discord'],
     install_requires=[
-        'unum-apps-ledger@git+https://github.com/unum-apps/ledger@0.1.2'
+        'discord.py==2.4.0'
     ]
 )
+

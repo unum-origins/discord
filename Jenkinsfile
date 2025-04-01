@@ -33,18 +33,36 @@ pipeline {
                         }
                     }
                 }
+                stage('module') {
+                    stages {
+                        stage('setup') {
+                            steps {
+                                sh 'make setup'
+                            }
+                        }
+                    }
+                }
             }
         }
         stage('push') {
             when {
                 branch "main"
             }
-            parallel {
-                stage('daemon') {
-                    steps {
-                        dir('daemon') {
-                            sh 'make push -e VERSION=${VERSION}'
+            stages {
+                stage('hash') {
+                    parallel {
+                        stage('daemon') {
+                            steps {
+                                dir('daemon') {
+                                    sh 'make push -e VERSION=${VERSION}'
+                                }
+                            }
                         }
+                    }
+                }
+                stage('semver') {
+                    steps {
+                        sh 'make semver -e VERSION=${VERSION}'
                     }
                 }
             }
