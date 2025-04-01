@@ -1,0 +1,51 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "api",
+            "type": "python",
+            "request": "attach",
+            "port": 14437,
+            "host": "localhost",
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/api",
+                    "remoteRoot": "/opt/service"
+                }
+            ]
+        },
+        {
+            "name": "gui",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:4469/",
+            "webRoot": "${workspaceFolder}/gui/www"
+        },
+        {
+            "name": "daemon",
+            "type": "python",
+            "request": "attach",
+            "port": 24437,
+            "host": "localhost",
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/daemon",
+                    "remoteRoot": "/opt/service"
+                }
+            ]
+        },
+        {
+            "name": "cron",
+            "type": "python",
+            "request": "attach",
+            "port": 34437,
+            "host": "localhost",
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/cron",
+                    "remoteRoot": "/opt/service"
+                }
+            ]
+        }
+    ]
+}

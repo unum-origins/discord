@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+  namespace: discord
+  labels:
+    app: daemon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: daemon
+  template:
+    metadata:
+      labels:
+        app: daemon
+    spec:
+      containers:
+      - name: daemon
+        image: discord-daemon
+        imagePullPolicy: Always
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: LOG_LEVEL
+          value: WARNING
+        - name: SLEEP
+          value: "5"
+        - name: K8S_POD
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        ports:
+        - name: http
+          containerPort: 80
+        volumeMounts:
+        - name: secret
+          mountPath: "/opt/service/secret"
+          readOnly: true
+      volumes:
+      - name: secret
+        secret:
+          secretName: secret
