@@ -2,7 +2,7 @@
 Module for the Daemon
 """
 
-# pylint: disable=no-self-use
+# pylint: disable=no-self-use,too-many-instance-attributes
 
 import os
 import micro_logger
@@ -27,7 +27,7 @@ class Daemon: # pylint: disable=too-few-public-methods
 
         self.name = "discord-daemon"
         self.unifist = unum_ledger.Base.SOURCE
-        self.group = f"daemon-discord"
+        self.group = "daemon-discord"
         self.group_id = os.environ["K8S_POD"]
 
         self.sleep = int(os.environ.get("SLEEP", 5))
