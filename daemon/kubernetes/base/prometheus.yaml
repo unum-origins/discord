@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: daemon
+  namespace: ledger
+  labels:
+    app: daemon
+spec:
+  selector:
+    matchLabels:
+      app: daemon
+  podMetricsEndpoints:
+  - port: http
+    interval: 15s
+    honorLabels: true
