@@ -4,11 +4,14 @@ INSTALL=python:3.10.8-alpine3.16
 VOLUMES=-v ${PWD}/daemon/:/opt/service/daemon/ \
 		-v ${PWD}/VERSION:/opt/service/VERSION \
 		-v ${PWD}/setup.py:/opt/service/setup.py
-.PHONY: up down setup tag untag
+.PHONY: secret up down setup tag untag
+
+secret:
+	mkdir -p secret
+	test -f secret/discord.json || echo '{"token": ""}' > secret/discord.json
 
 up:
 	kubectx docker-desktop
-	mkdir -p secret
 	mkdir -p config
 	# cnc-forge: up
 	tilt --port $(TILT_PORT) up
