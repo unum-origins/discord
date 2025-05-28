@@ -26,12 +26,34 @@ META = """
 title: the Discord Origin
 description: Discord interface with this Unum.
 help: |
-  This does a lot of cool shit with Discord
+  And Welcome to this Discord Origin, how this Discord server interfaces with thie Unum.
+
+  Everything here works via Commands. Commands that start with ? are questions abd ask me for information. Commands
+  that start with ! are actions, asking me to change something.
+
+  For help you can type `?help` or just `?` by itself. To get more info on a command type `?help __command__`. Read
+  the command help fully. It'll explain the context of the command, what it does, and how to format arguments
+  correctly. Such training is required before being allowed to use a command. You will get a friendly request to
+  complete training, complete with the command to run.
+
+  Everytime you join an App, you'll get new Feats to accomplish. To see you reaming Feats to accomplish, type
+  `?feats`. Using `?feats` and `?help` this way should train you up on how to use all the features available to
+  you here.
+
+  Each channel has one or more Apps, each with its own set of Commands. If you message me privately, all commands
+  are avaiable. To narrow down a Command to a particular App, add the App name to the command via a '.'. For example,
+  to get just the help for the ledger, DM me `?help.ledger`. This also works in any channel.
 channel: unifist-unum
 commands:
 - name: help
   description: Help for
   requires: none
+  examples:
+  - meme: '?'
+    description: Lists all the commands for
+  - meme: '?'
+    args: help
+    description: Shows the usages of help
   usages:
   - name: general
     meme: '?'
@@ -42,6 +64,10 @@ commands:
     args:
     - name: command
       description: The command to list the usages of
+      valids: []
+- name: feats
+  meme: '?'
+  description: List your Feats in
 - name: join
   meme: '!'
   description: Join

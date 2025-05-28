@@ -1,6 +1,6 @@
 PyYAML==6.0.2
 emoji==2.14.1
-unum-ledger @ git+https://github.com/unum-apps/ledger@bc4179000785904c7dcff8b1e7bb11a85ddb6416
+unum-ledger @ git+https://github.com/unum-apps/ledger@ad68ba61c18fea94023057c89dbb00527a0eb6e5
 discord.py==2.4.0
 atproto==0.0.56
 micro-logger==0.1.2

@@ -9,6 +9,8 @@ import copy
 import json
 import asyncio
 
+import pprint
+
 from emoji import EMOJI_DATA
 import discord
 import discord.abc
@@ -46,6 +48,14 @@ MEMES = {
     "*": "♥️",
     "?": "❓",
     "!": "❗"
+}
+
+FEATS = {
+    "accepted": "👍",
+    "rejected": "👎",
+    "completed": "♥️",
+    "requested": "❓",
+    "excepted": "❗"
 }
 
 class OriginClient(discord.Client):
@@ -210,13 +220,12 @@ class OriginClient(discord.Client):
         Parse the args of the command
         """
 
-        valid = []
         invalid = []
 
         for usage in command["usages"]:
 
             current = text
-            usage["args"] = args = usage.get("args", [])
+            args = usage.get("args", [])
             usage["values"] = values = {}
             usage["errors"] = errors = {}
 
@@ -236,7 +245,8 @@ class OriginClient(discord.Client):
 
                 if not current:
                     errors[name] = "missing value"
-                    continue
+                    invalid.append(usage)
+                    break
 
                 format = arg.get("format", "word")
                 pieces = current.split(maxsplit=1)
@@ -283,11 +293,12 @@ class OriginClient(discord.Client):
                 current = pieces.pop(0) if pieces else ""
 
             if current:
+                usage["error"] = "more text than args"
                 invalid.append(usage)
-            elif not errors and len(values) == len(args):
-                valid.append(usage)
-            elif len(values) + len(errors) == len(args):
+            elif errors:
                 invalid.append(usage)
+
+        valid = [usage for usage in command["usages"] if usage not in invalid]
 
         if len(valid) == 1:
             what["usage"] = valid[0]["name"]
@@ -296,17 +307,16 @@ class OriginClient(discord.Client):
             valids = " and ".join([usage["name"] for usage in valid])
             what["error"] = f"too many valid usages: {valids}"
         elif len(invalid):
-            closest = sorted(invalid, key=lambda close: len(close["errors"]))[0]
+            closest = sorted(invalid, key=lambda close: len(close.get("errors", [])))[0]
             what["usage"] = closest["name"]
-            what["args"] = closest["args"]
-            what["errors"] = closest["errors"]
+            if "args" in usage:
+                what["args"] = usage["args"]
             if "error" in usage:
-                what["error"] = usage ["error"]
+                what["error"] = usage["error"]
+            if "errors" in usage:
+                what["errors"] = usage["errors"]
         else:
             what["error"] = "no usage found"
-
-        if what.get("errors") and "error" not in what:
-            what["error"] = "There are errors"
 
         return "error" not in what
 
@@ -342,6 +352,11 @@ class OriginClient(discord.Client):
 
         what["base"] = "command"
 
+        # If just a ?, then help
+
+        if text == "?":
+            text = "?help"
+
         # Get the name, text
 
         pieces = text.split(maxsplit=1)
@@ -368,9 +383,9 @@ class OriginClient(discord.Client):
 
         # If we're in DM's, they can specify the channel with #
 
-        elif kind== "private" and "#" in name:
+        elif kind == "private" and "#" in name:
             name, channel = name.split("#")
-            search["meta__channel"] = channel
+            search["meta__channel"] = what["channel"] = channel
 
         # If this was said by me the bot and a : then this is an id
 
@@ -394,7 +409,7 @@ class OriginClient(discord.Client):
 
         for app in unum_ledger.App.many(**search):
             what["apps"].append(app.who)
-            commands.extend(app.meta__commands)
+            commands.extend([{**command, "source": app.who} for command in app.meta__commands])
             titles .append(app.meta__title)
             descriptions.append(app.meta__description)
             helps.append(app.meta__help)
@@ -407,7 +422,7 @@ class OriginClient(discord.Client):
             if origin:
                 what["origin"] = origin.who
                 if origin.id != self.daemon.origin.id:
-                    commands.extend(origin.meta__commands)
+                    commands.extend([{**command, "source": origin.who} for command in origin.meta__commands])
                 titles.append(origin.meta__title)
                 descriptions.append(origin.meta__description)
                 helps.append(origin.meta__help)
@@ -420,7 +435,7 @@ class OriginClient(discord.Client):
         # If nothing to search
 
         if not commands:
-            what["error"] = f"No Apps or Origin here - try ?help in {{channel:{self.daemon.origin.meta__channel}}}"
+            what["error"] = f"No Apps or Origin here - try `?help` in {{channel:{self.daemon.origin.meta__channel}}}"
             return
 
         # now that we narrowed things down, we can add the common commands to all
@@ -437,13 +452,16 @@ class OriginClient(discord.Client):
             self.encode_title(commands[0], title)
             self.encode_title(commands[1], title)
             self.encode_title(commands[2], title)
+            self.encode_title(commands[3], title)
 
         # If we're private, just add help
 
         elif kind == "private":
 
             commands.insert(0, self.daemon.origin.meta__commands[0])
+            commands.insert(1, self.daemon.origin.meta__commands[1])
             self.encode_title(commands[0], title)
+            self.encode_title(commands[1], title)
 
         # Match by name alone for now
 
@@ -452,7 +470,7 @@ class OriginClient(discord.Client):
         # Not enough
 
         if not found:
-            what["error"] = f"unknown command {name} - try ?help"
+            what["error"] = f"unknown command {name} - try `?help`"
             return
 
         # Too many
@@ -471,10 +489,15 @@ class OriginClient(discord.Client):
 
         command = copy.deepcopy(found[0])
 
+        # Grab the single single if there is one
+
+        if "source" in command:
+            what["source"] = command["source"]
+
         # If they've chosen help, add all the possible commands we just checked to valid usage
 
         if command["name"] == "help":
-            command["usages"][1]["valids"] = [command["name"] for command in commands]
+            command["usages"][1]["args"][0]["valids"] = [command["name"] for command in commands]
 
         # If this command has usages, check those
 
@@ -488,7 +511,7 @@ class OriginClient(discord.Client):
         # If it doens't have usages, we must match it's meme
 
         elif command["meme"] != what["meme"]:
-            what["error"] = f"no usage for {what['meme']}{name} - try {command['meme']}{name}"
+            what["error"] = f"no usage for {what['meme']}{name} - try `{command['meme']}{name}`"
             return
 
         # Rather do the same query twice, add what's needed here
@@ -521,6 +544,9 @@ class OriginClient(discord.Client):
 
                 # Use the descrption of the command and the usages if there, if not, the command and meme
 
+                if "source" in usage:
+                    what["source"] = usage["source"]
+
                 what["description"] = usage["description"]
                 what["usages"] = usage.get("usages", [
                     {
@@ -528,6 +554,28 @@ class OriginClient(discord.Client):
                         "description": usage["description"]
                     }
                 ])
+                what["examples"] = usage.get("examples", [
+                    {
+                        "meme": usage.get("meme", "*"),
+                        "description": usage["description"]
+                    }
+                ])
+
+        # Determine if there's permissions to use it
+
+        if command['name'] in ["join", "leave", "feats"]:
+
+            feat = f"command:help:{command['name']}#{what['channel']}"
+
+            if not unum_ledger.Feat.one(who=feat, status="completed").retrieve(None):
+                what["error"] = f"training required - in {{channel:{channel}}} please ask:\n- `?help {command['name']}`"
+
+        elif command['name'] != "help":
+
+            feat = f"command:help.{command['source']}:{command['name']}"
+
+            if not unum_ledger.Feat.one(who=feat, status="completed").retrieve(None):
+                what["error"] = f"training required - please ask:\n- `?help.{command['source']} {command['name']}`"
 
     async def parse_ancestor(self, ancestor, what, meta):
         """
@@ -605,10 +653,55 @@ class OriginClient(discord.Client):
 
     # Reacting to Discord commands
 
+    async def multi_send(self, channel, text, reference=None):
+        """
+        Sends
+        """
+
+        while text:
+
+            if len(text) > 2000:
+                closest = text[:2000].rfind('\n')
+                current = text[:closest]
+                text = text[(closest+1):]
+            else:
+                current = text
+                text = ""
+
+            await channel.send(self.encode_text(current), reference=reference)
+
     async def command_help(self, what, meta, message):
         """
         Prints out help message for an App or Origin
         """
+
+        # Ensure we can track this person
+
+        if "entity_id" not in what:
+
+            unum = unum_ledger.Unum.one(who='self')
+            what["entity_id"] = unum_ledger.Entity(
+                unum_id=unum.id,
+                who=meta["author"]["name"],
+                status="inactive",
+                meta={
+                    "talk": {
+                        "after": self.decode_time("8h"),
+                        "before": self.decode_time("20h"),
+                        "kind": "public",
+                        "noise": "loud"
+                    }
+                }
+            ).create().id
+
+            unum_ledger.Witness(
+                entity_id=what["entity_id"],
+                origin_id=self.daemon.origin.id,
+                who=message.author.id,
+                status="inactive"
+            ).create()
+
+            await self.create_feats(what["entity_id"], self.daemon.origin.who)
 
         channel = message.channel
 
@@ -627,7 +720,25 @@ class OriginClient(discord.Client):
 
         elif what["usage"] == "command":
 
-            text = f'♥️ *{what["description"]}*\nusage:'
+            text = f'♥️ *{what["description"]}*'
+
+            if "examples" in what:
+
+                text += '\nexamples:'
+
+                for example in what["examples"]:
+
+                    text += f"\n- `{example['meme']}{what['values']['command']}"
+
+                    if "args" in example:
+                        text += f" {example['args']}"
+
+                    text += '`'
+
+                    if "description" in example:
+                        text += (f"\n  - *{example['description']}*")
+
+            text += '\nusages:'
 
             formats = set()
 
@@ -649,7 +760,7 @@ class OriginClient(discord.Client):
                     formats.add(format)
                     args += f" - format: ***{format}***"
 
-                    if "valids" in arg:
+                    if arg.get("valids"):
 
                         if isinstance(arg["valids"][0], dict):
 
@@ -671,12 +782,12 @@ class OriginClient(discord.Client):
                 text += args
 
             if formats:
-                text += "\nRelevant formats:"
+                text += "\nformats:"
                 for format in FORMATS:
                     if format["name"] in formats:
                         text += f'\n- ***{format["name"]}*** - *{format["description"]}*'
 
-        await channel.send(text, reference=message)
+        await self.multi_send(channel, text, reference=message)
 
     async def command_join(self, what, meta, message):
         """
@@ -718,45 +829,32 @@ class OriginClient(discord.Client):
 
                 welcomes.append(app.meta__title)
 
+            await self.create_feats(what["entity_id"], app.who)
+
         if what.get("origin") == self.daemon.origin.who:
 
             witness = unum_ledger.Witness.one(
                 origin_id=self.daemon.origin.id,
                 who=user_id
-            ).retrieve(False)
+            ).retrieve()
 
-            if witness:
+            entity = unum_ledger.Entity.one(id=witness.entity_id)
 
-                entity = unum_ledger.Entity.one(id=witness.entity_id)
+            if entity.status == "inactive":
 
-                if entity.status == "inactive":
+                entity.status = "active"
+                entity.update()
 
-                    entity.status = "active"
-                    entity.update()
+            if witness.status == "inactive":
 
-                if witness.status == "inactive":
+                witness.status = "active"
+                witness.update()
 
-                    witness.status = "active"
-                    witness.update()
-                    backs.append(self.daemon.origin.meta__title)
+            welcomes.append(self.daemon.origin.meta__title)
 
-                else:
+        elif what.get("origin") and what["origin"] != self.daemon.origin.who:
 
-                    alreadys.append(self.daemon.origin.meta__title)
-
-            elif "entity_id" not in what:
-
-                unum = unum_ledger.Unum.one(who='self')
-                what["entity_id"] = unum_ledger.Entity(unum_id=unum.id, who=meta["author"]["name"]).create().id
-
-                unum_ledger.Witness(
-                    entity_id=what["entity_id"],
-                    origin_id=self.daemon.origin.id,
-                    who=user_id,
-                    status="active"
-                ).create()
-
-                welcomes.append(self.daemon.origin.meta__title)
+            await self.create_feats(what["entity_id"], what["origin"])
 
         comments = []
 
@@ -775,8 +873,7 @@ class OriginClient(discord.Client):
         if comments:
             comment = " ".join(comments)
             text = f"👍 {comment}"
-            await channel.send(self.encode_text(text), reference=message)
-
+            await self.multi_send(channel, text, reference=message)
 
     async def command_leave(self, what, meta, message):
         """
@@ -864,7 +961,36 @@ class OriginClient(discord.Client):
         if comments:
             comment = " ".join(comments)
             text = f"👍 {comment}"
-            await channel.send(self.encode_text(text), reference=message)
+            await self.multi_send(channel, text, reference=message)
+
+    async def command_feats(self, what, meta, message):
+        """
+        Joins the Unum, Ledger, and Discord Origin
+        """
+
+        channel = message.channel
+        user_id = meta["author"]["id"]
+
+        herald = unum_ledger.Witness.one(
+            origin_id=self.daemon.origin.id,
+            who=user_id
+        ).retrieve(False)
+
+        if not herald:
+            what["error"] = "not yet aware of you - type `?help`"
+            return
+
+        text = "♥️ your feats are:"
+
+        if what.get("origin"):
+            for feat in unum_ledger.Feat.many(entity_id=herald.entity_id, what__source=what["origin"]):
+                text += f"\n- {feat.what__description} - {feat.status} {FEATS[feat.status]}"
+
+        for app in what.get("apps", []):
+            for feat in unum_ledger.Feat.many(entity_id=herald.entity_id, what__source=app):
+                text += f"\n- {feat.what__description} - {feat.status} {FEATS[feat.status]}"
+
+        await self.multi_send(channel, text, reference=message)
 
     async def on_command(self, what, meta, message):
         """
@@ -875,7 +1001,7 @@ class OriginClient(discord.Client):
 
         if what.get("error"):
             text = f'❗ {what["error"]}'
-            await channel.send(self.encode_text(text), reference=message)
+            await self.multi_send(channel, text, reference=message)
         elif what.get("errors"):
             text = f'❗ issues with {what["command"]} usage:'
             args = what["args"]
@@ -883,13 +1009,15 @@ class OriginClient(discord.Client):
             for arg in args:
                 if arg["name"] in errors:
                     text += f'\n- {arg["name"]} - {errors[arg["name"]]}'
-            await channel.send(self.encode_text(text), reference=message)
+            await self.multi_send(channel, text, reference=message)
         elif what["command"] == "help":
             await self.command_help(what, meta, message)
         elif what["command"] == "join":
             await self.command_join(what, meta, message)
         elif what["command"] == "leave":
             await self.command_leave(what, meta, message)
+        elif what["command"] == "feats":
+            await self.command_feats(what, meta, message)
 
     # Reacting to Discord events
 
@@ -910,6 +1038,7 @@ class OriginClient(discord.Client):
 
         if "entity_id" in what:
             await self.create_fact(
+                message,
                 origin_id=self.daemon.origin.id,
                 entity_id=what["entity_id"],
                 who=f"message:{message.id}",
@@ -929,6 +1058,7 @@ class OriginClient(discord.Client):
 
         if "entity_id" in what:
             await self.create_fact(
+                reaction.mesage,
                 origin_id=self.daemon.origin.id,
                 entity_id=what["entity_id"],
                 who=f"reaction:{reaction.message.id}:{reaction.emoji}",
@@ -957,7 +1087,7 @@ class OriginClient(discord.Client):
         meme = instance["what"].get("meme", "*")
         emoji = instance["what"].get("emoji", MEMES[meme])
         command = ""
-        text = instance["what"]["text"]
+        text = instance["what"].get("text", "")
         app = unum_ledger.App.one(instance["app_id"]).retrieve(False)
 
         if "command" in instance["what"]:
@@ -968,9 +1098,21 @@ class OriginClient(discord.Client):
             if "id" in instance["what"]:
                 command += f":{instance['what']['id']}"
 
+        if "listing" in instance["what"]:
+
+            text += instance["what"]["listing"]["description"]
+
+            for item in instance["what"]["listing"]["items"]:
+                text += f"\n- {item}"
+
+        target = None
         reference = None
 
-        if entity.meta__talk__kind == "public":
+        if instance["meta"].get("ancestor", {}).get("id"):
+            target = await self.fetch_channel(instance["meta"]["ancestor"]["channel"]["id"])
+            reference = await target.fetch_message(instance["meta"]["ancestor"]["id"])
+
+        if not target and entity.meta__talk__kind == "public":
 
             target = discord.utils.get(self.get_all_channels(), name=(
                 instance["what"].get("channel") or
@@ -983,7 +1125,7 @@ class OriginClient(discord.Client):
             else:
                 text = f"{entity.who}, " + text
 
-        else:
+        elif not target:
 
             if command:
                 command += f".{app.who}"
@@ -992,12 +1134,9 @@ class OriginClient(discord.Client):
 
             target = await guild.fetch_member(unum_ledger.Witness.one(entity_id=entity_id).who)
 
-        text = (command or emoji) + " " + self.encode_text(text)
+        text = (command or emoji) + " " + text
 
-        if instance["meta"].get("ancestor", {}).get("id"):
-            reference = await target.fetch_message(instance["meta"]["ancestor"]["id"])
-
-        await target.send(text, reference=reference)
+        await self.multi_send(target, text, reference=reference)
 
     async def act_reaction(self, instance):
         """
@@ -1025,9 +1164,9 @@ class OriginClient(discord.Client):
                 else:
                     text = f"{entity.who}, " + text
 
-            text = emoji + " " + self.encode_text(text)
+            text = emoji + " " + text
 
-            await channel.send(text, reference=reference)
+            await self.multi_send(channel, text, reference=reference)
 
         # Else we only have a reaction
 
@@ -1037,16 +1176,195 @@ class OriginClient(discord.Client):
 
     # Create Unum Events
 
-    async def create_fact(self, **fact):
+    async def complete_feats(self, message, fact):
+        """
+        Complete feats if so
+        """
+
+        for feat in unum_ledger.Feat.many(
+            entity_id=fact.entity_id,
+            status__in=["requested", "accepted"],
+            what__source=self.daemon.origin.who
+        ):
+
+            completed = []
+
+            # Oh yes this is horribly inefficient but it's like no code
+
+            if feat.what__fact and unum_ledger.Fact.one(id=fact.id, **feat.what__fact).retrieve(False):
+                feat.status = "completed"
+                feat.update()
+                completed.append(feat.what__description)
+
+            if completed:
+                text = f"{MEMES['*'] } completed Feats:"
+
+                for feat in completed:
+                    text += f"\n- {feat}"
+
+                await self.multi_send(message.channel, text, reference=message)
+
+    async def create_fact(self, message, **fact):
         """
         Creates a fact if needed
         """
+
+        if fact["what"].get("command") not in ["help", "feat", "join", "leave"] and not self.is_active(fact["entity_id"]):
+            return
 
         fact = unum_ledger.Fact(**fact).create()
 
         self.daemon.logger.info("fact", extra={"fact": {"id": fact.id}})
         service.FACTS.observe(1)
         await self.daemon.redis.xadd("ledger/fact", fields={"fact": json.dumps(fact.export())})
+
+        if not fact.what__error and not fact.what__errors:
+            await self.complete_feats(message, fact)
+
+    def ensure_feat(self, entity_id, who, **feat):
+        """
+        Ensure a feat exists
+        """
+
+        unum_ledger.Feat.one(entity_id=entity_id, who=who).retrieve(False) or unum_ledger.Feat(
+            entity_id=entity_id,
+            who=who,
+            status="requested",
+            when=time.time(),
+            **feat
+        ).create()
+
+    async def create_feats(self, entity_id, who):
+        """
+        Creates feats if needed
+        """
+
+        if who == self.daemon.origin.who:
+
+            self.ensure_feat(
+                entity_id=entity_id,
+                who=f"command:help#{self.daemon.origin.meta__channel}",
+                what={
+                    "source": self.daemon.origin.who,
+                    "description": f"Run help publicly in {{channel:{self.daemon.origin.meta__channel}}}",
+                    "fact": {
+                        "what__origin": self.daemon.origin.who,
+                        "what__base": "command",
+                        "what__command": "help",
+                        "what__channel": self.daemon.origin.meta__channel
+                    }
+                }
+            )
+
+            self.ensure_feat(
+                entity_id=entity_id,
+                who=f"command:help.{who}:private",
+                what={
+                    "source": self.daemon.origin.who,
+                    "description": f"Run help privately for {who}",
+                    "fact": {
+                        "what__origin": self.daemon.origin.who,
+                        "what__base": "command",
+                        "what__kind": "private",
+                        "what__command": "help"
+                    }
+                }
+            )
+
+            for command in self.daemon.origin.meta__commands[1:]:
+
+                self.ensure_feat(
+                    entity_id=entity_id,
+                    who=f"command:help:{command['name']}#{self.daemon.origin.meta__channel}",
+                    what={
+                        "source": self.daemon.origin.who,
+                        "description": f"Get help for {command['name']} in {{channel:{self.daemon.origin.meta__channel}}}",
+                        "fact": {
+                            "what__base": "command",
+                            "what__command": "help",
+                            "what__usage": "command",
+                            "what__channel": self.daemon.origin.meta__channel,
+                            "what__values__command": command['name']
+                        }
+                    }
+                )
+
+            return
+
+        source = unum_ledger.App.one(who=who).retrieve(False) or unum_ledger.Origin.one(who=who).retrieve(False)
+
+        if not source:
+            return
+
+        if source.who != "ledger":
+
+            self.ensure_feat(
+                entity_id=entity_id,
+                who=f"command:help#{source.meta__channel}",
+                what={
+                    "source": source.who,
+                    "description": f"Run help for {source.who} in {{channel:{source.meta__channel}}}",
+                    "fact": {
+                        "what__base": "command",
+                        "what__command": "help",
+                        "what__usage": "general",
+                        "what__channel": source.meta__channel
+                    }
+                }
+            )
+
+            for command in self.daemon.origin.meta__commands[1:]:
+
+                self.ensure_feat(
+                    entity_id=entity_id,
+                    who=f"command:help:{command['name']}#{source.meta__channel}",
+                    what={
+                        "source": source.who,
+                        "description": f"Get help for {command['name']} in {{channel:{source.meta__channel}}}",
+                        "fact": {
+                            "what__base": "command",
+                            "what__command": "help",
+                            "what__usage": "command",
+                            "what__channel": source.meta__channel,
+                            "what__values__command": command['name']
+                        }
+                    }
+                )
+
+        if isinstance(source, unum_ledger.App):
+            self.ensure_feat(
+                entity_id=entity_id,
+                who=f"command:help.{source.who}:public",
+                what={
+                    "source": source.who,
+                    "description": f"Run help publicly for {source.who} but not in {{channel:{source.meta__channel}}}",
+                    "fact": {
+                        "what__apps__has": [source.who],
+                        "what__base": "command",
+                        "what__kind": "public",
+                        "what__command": "help",
+                        "what__channel__not_eq": source.meta__channel
+                    }
+                }
+            )
+
+        for command in source.meta__commands:
+
+            self.ensure_feat(
+                entity_id=entity_id,
+                who=f"command:help.{source.who}:{command['name']}",
+                what={
+                    "source": source.who,
+                    "description": f"Get help for {command['name']} in {source.who}",
+                    "fact": {
+                        "what__source": source.who,
+                        "what__base": "command",
+                        "what__command": "help",
+                        "what__usage": "command",
+                        "what__values__command": command['name']
+                    }
+                }
+            )
 
     # Recieving Unum Events
 
