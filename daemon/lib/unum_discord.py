@@ -26,7 +26,7 @@ FORMATS = [
     },
     {
         "name": "remainder",
-        "description": "a - followed by words at the end of a command"
+        "description": "words at the end of a command"
     },
     {
         "name": "emoji",
@@ -50,7 +50,15 @@ MEMES = {
     "!": "❗"
 }
 
-FEATS = {
+TASKS = {
+    "inprogress": "👍",
+    "wontdo": "👎",
+    "done": "♥️",
+    "blocked": "❓",
+    "imperiled": "❗"
+}
+
+AWARDS = {
     "accepted": "👍",
     "rejected": "👎",
     "completed": "♥️",
@@ -122,6 +130,36 @@ class OriginClient(discord.Client):
                 current = ""
 
         return seconds
+
+    def encode_time(self, seconds):
+        """
+        Encodes seconds to 3d2h3m format
+        """
+
+        # Start with a blank string
+
+        arg = ""
+
+        # Determine and peel off the days, hours, and minutes
+
+        days = int(seconds/(24*60*60))
+        seconds -= days * 24*60*60
+        hours = int(seconds /(60*60))
+        seconds -= hours * 60*60
+        mins = int(seconds/(60))
+
+        # If there's a value, add it with its letter
+
+        if days:
+            arg += f"{days}d"
+
+        if hours:
+            arg += f"{hours}h"
+
+        if mins:
+            arg += f"{mins}m"
+
+        return arg
 
     def decode_text(self, text):
 
@@ -267,10 +305,12 @@ class OriginClient(discord.Client):
                             valids = ', '.join(options)
                             errors[name] = f"{piece} is not in {valids}"
                 elif format == "remainder":
-                    if piece == "-":
-                        values[name] = pieces.pop(0)
+                    if current:
+                        values[name] = current
+                        current = ""
+                        pieces = []
                     else:
-                        errors[name] = f"put a - before what you want to say"
+                        errors[name] = "nothing remaining"
                 elif format == "emoji":
                     if piece in EMOJI_DATA:
                         values[name] = piece
@@ -345,7 +385,7 @@ class OriginClient(discord.Client):
 
         # Needs ot be either a question or an action
 
-        if not text or text[0] not in ["?", "!"]:
+        if not text or text[0] not in ["?", "*","!"]:
             return
 
         # We know it's a command and it's meme
@@ -356,6 +396,8 @@ class OriginClient(discord.Client):
 
         if text == "?":
             text = "?help"
+        elif text[:2] == "! ":
+            text = f"!scat {text[2:]}"
 
         # Get the name, text
 
@@ -453,6 +495,8 @@ class OriginClient(discord.Client):
             self.encode_title(commands[1], title)
             self.encode_title(commands[2], title)
             self.encode_title(commands[3], title)
+            self.encode_title(commands[4], title)
+            self.encode_title(commands[5], title)
 
         # If we're private, just add help
 
@@ -460,8 +504,12 @@ class OriginClient(discord.Client):
 
             commands.insert(0, self.daemon.origin.meta__commands[0])
             commands.insert(1, self.daemon.origin.meta__commands[1])
+            commands.insert(2, self.daemon.origin.meta__commands[2])
+            commands.insert(3, self.daemon.origin.meta__commands[3])
             self.encode_title(commands[0], title)
             self.encode_title(commands[1], title)
+            self.encode_title(commands[2], title)
+            self.encode_title(commands[3], title)
 
         # Match by name alone for now
 
@@ -563,18 +611,18 @@ class OriginClient(discord.Client):
 
         # Determine if there's permissions to use it
 
-        if command['name'] in ["join", "leave", "feats"]:
+        if command['name'] in ["scat", "award", "task", "join", "leave"]:
 
-            feat = f"command:help:{command['name']}#{what['channel']}"
+            award = f"command:help:{command['name']}#{what['channel']}"
 
-            if not unum_ledger.Feat.one(who=feat, status="completed").retrieve(None):
+            if not unum_ledger.Award.one(who=award, status="completed").retrieve(None):
                 what["error"] = f"training required - in {{channel:{channel}}} please ask:\n- `?help {command['name']}`"
 
         elif command['name'] != "help":
 
-            feat = f"command:help.{command['source']}:{command['name']}"
+            award = f"command:help.{command['source']}:{command['name']}"
 
-            if not unum_ledger.Feat.one(who=feat, status="completed").retrieve(None):
+            if not unum_ledger.Award.one(who=award, status="completed").retrieve(None):
                 what["error"] = f"training required - please ask:\n- `?help.{command['source']} {command['name']}`"
 
     async def parse_ancestor(self, ancestor, what, meta):
@@ -701,7 +749,13 @@ class OriginClient(discord.Client):
                 status="inactive"
             ).create()
 
-            await self.create_feats(what["entity_id"], self.daemon.origin.who)
+            await self.create_awards(what["entity_id"], self.daemon.origin.who)
+
+        if "origin" in what:
+            await self.create_awards(what["entity_id"], what["origin"])
+
+        for app in what.get("apps", []):
+            await self.create_awards(what["entity_id"], app)
 
         channel = message.channel
 
@@ -789,6 +843,200 @@ class OriginClient(discord.Client):
 
         await self.multi_send(channel, text, reference=message)
 
+    async def command_scat(self, what, meta, message):
+        """
+        Records a scat or lists them
+        """
+
+        channel = message.channel
+        user_id = meta["author"]["id"]
+
+        herald = unum_ledger.Witness.one(
+            origin_id=self.daemon.origin.id,
+            who=user_id
+        ).retrieve(False)
+
+        if not herald:
+            what["error"] = "not yet aware of you - type `?help`"
+            return
+
+        meme = what["meme"]
+        usage = what["usage"]
+        values = what.get("values", {})
+
+        if meme == "!":
+
+            scat = unum_ledger.Scat(
+                entity_id=herald.entity_id,
+                who=f"discord.message:{message.id}",
+                status="recorded",
+                when=time.time(),
+                what={
+                    "description": values["thoughts"],
+                    "on": what
+                }
+            ).create()
+
+            text = f"scatted {values['thoughts']}"
+
+        elif meme == "?":
+
+            if usage == "list_unassigned":
+
+                text = "♥️ unassigned scats are:"
+
+                for scat in unum_ledger.Scat.many(status="recorded"):
+                    text += f"\n- {scat.what__description} - {scat.status}"
+
+            else:
+
+                now = time.time()
+                when_min = when_max = 0
+
+                if usage == "list_since":
+
+                    when_min = values["since"]
+                    text = f"♥️ your scats from {self.encode_time(when_min) or 'now'} are:"
+
+                elif usage == "list_from_to":
+
+                    when_min = values["from"]
+                    when_max = values["to"]
+                    text = f"♥️ your scats from {self.encode_time(when_min) or 'now'} to {self.encode_time(when_max) or 'now'} are:"
+
+                for scat in unum_ledger.Scat.many(
+                    entity_id=herald.entity_id,
+                    when__gte=now - when_min,
+                    when__lte=now - when_max
+                ):
+                    when = self.encode_time(now - scat.when) or "now"
+                    text += f"\n- {scat.what__description} - {scat.status} - {when}"
+
+        await self.multi_send(channel, text, reference=message)
+
+    async def command_award(self, what, meta, message):
+        """
+        Joins the Unum, Ledger, and Discord Origin
+        """
+
+        channel = message.channel
+        user_id = meta["author"]["id"]
+
+        herald = unum_ledger.Witness.one(
+            origin_id=self.daemon.origin.id,
+            who=user_id
+        ).retrieve(False)
+
+        if not herald:
+            what["error"] = "not yet aware of you - type `?help`"
+            return
+
+        meme = what["meme"]
+        usage = what["usage"]
+        values = what.get("values", {})
+
+        if usage == "list_incomplete":
+
+            text = "♥️ your incomplete awards are:"
+
+            if what.get("origin"):
+                for award in unum_ledger.Award.many(entity_id=herald.entity_id, status__not_eq="completed", what__source=what["origin"]):
+                    text += f"\n- {award.what__description} - {award.status} {AWARDS[award.status]}"
+
+            for app in what.get("apps", []):
+                for award in unum_ledger.Award.many(entity_id=herald.entity_id, status__not_eq="completed", what__source=app):
+                    text += f"\n- {award.what__description} - {award.status} {AWARDS[award.status]}"
+
+        else:
+
+            text = "♥️ your awards are:"
+
+            if what.get("origin"):
+                for award in unum_ledger.Award.many(entity_id=herald.entity_id, what__source=what["origin"]):
+                    text += f"\n- {award.what__description} - {award.status} {AWARDS[award.status]}"
+
+            for app in what.get("apps", []):
+                for award in unum_ledger.Award.many(entity_id=herald.entity_id, what__source=app):
+                    text += f"\n- {award.what__description} - {award.status} {AWARDS[award.status]}"
+
+        await self.multi_send(channel, text, reference=message)
+
+    async def command_task(self, what, meta, message):
+        """
+        Joins the Unum, Ledger, and Discord Origin
+        """
+
+        channel = message.channel
+        user_id = meta["author"]["id"]
+
+        herald = unum_ledger.Witness.one(
+            origin_id=self.daemon.origin.id,
+            who=user_id
+        ).retrieve(False)
+
+        if not herald:
+            what["error"] = "not yet aware of you - type `?help`"
+            return
+
+        meme = what["meme"]
+        usage = what["usage"]
+        values = what.get("values", {})
+
+        if meme == "!":
+
+            work = values["work"]
+
+            if work == "scat":
+
+                await self.create_scat_task(herald.entity_id)
+
+            else:
+
+                whos = []
+
+                if "origin" in what:
+                    whos.append(what["origin"])
+
+                for app in what.get("apps", []):
+                    whos.append(app)
+
+                if work == "learn":
+                    for who in whos:
+                        await self.create_learn_tasks(herald.entity_id, who)
+                elif work == "qa":
+                    for who in whos:
+                        await self.create_qa_tasks(herald.entity_id, who)
+
+            text = f"assigned {work} work"
+
+        elif meme == "?":
+
+            if usage == "list_incomplete":
+
+                text = "♥️ your incomplete tasks are:"
+
+                if what.get("origin"):
+                    for task in unum_ledger.Task.many(entity_id=herald.entity_id, status__not_eq="done", what__source=what["origin"]):
+                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+
+                for app in what.get("apps", []):
+                    for task in unum_ledger.Task.many(entity_id=herald.entity_id, status__not_eq="done", what__source=app):
+                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+
+            else:
+
+                text = "♥️ your tasks are:"
+
+                if what.get("origin"):
+                    for task in unum_ledger.Task.many(entity_id=herald.entity_id, what__source=what["origin"]):
+                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+
+                for app in what.get("apps", []):
+                    for task in unum_ledger.Task.many(entity_id=herald.entity_id, what__source=app):
+                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+
+        await self.multi_send(channel, text, reference=message)
+
     async def command_join(self, what, meta, message):
         """
         Joins the Unum, Ledger, and Discord Origin
@@ -829,7 +1077,7 @@ class OriginClient(discord.Client):
 
                 welcomes.append(app.meta__title)
 
-            await self.create_feats(what["entity_id"], app.who)
+            await self.create_awards(what["entity_id"], app.who)
 
         if what.get("origin") == self.daemon.origin.who:
 
@@ -854,7 +1102,7 @@ class OriginClient(discord.Client):
 
         elif what.get("origin") and what["origin"] != self.daemon.origin.who:
 
-            await self.create_feats(what["entity_id"], what["origin"])
+            await self.create_awards(what["entity_id"], what["origin"])
 
         comments = []
 
@@ -963,35 +1211,6 @@ class OriginClient(discord.Client):
             text = f"👍 {comment}"
             await self.multi_send(channel, text, reference=message)
 
-    async def command_feats(self, what, meta, message):
-        """
-        Joins the Unum, Ledger, and Discord Origin
-        """
-
-        channel = message.channel
-        user_id = meta["author"]["id"]
-
-        herald = unum_ledger.Witness.one(
-            origin_id=self.daemon.origin.id,
-            who=user_id
-        ).retrieve(False)
-
-        if not herald:
-            what["error"] = "not yet aware of you - type `?help`"
-            return
-
-        text = "♥️ your feats are:"
-
-        if what.get("origin"):
-            for feat in unum_ledger.Feat.many(entity_id=herald.entity_id, what__source=what["origin"]):
-                text += f"\n- {feat.what__description} - {feat.status} {FEATS[feat.status]}"
-
-        for app in what.get("apps", []):
-            for feat in unum_ledger.Feat.many(entity_id=herald.entity_id, what__source=app):
-                text += f"\n- {feat.what__description} - {feat.status} {FEATS[feat.status]}"
-
-        await self.multi_send(channel, text, reference=message)
-
     async def on_command(self, what, meta, message):
         """
         If there's a command that doesn't require creation
@@ -1012,12 +1231,16 @@ class OriginClient(discord.Client):
             await self.multi_send(channel, text, reference=message)
         elif what["command"] == "help":
             await self.command_help(what, meta, message)
+        elif what["command"] == "scat":
+            await self.command_scat(what, meta, message)
+        elif what["command"] == "award":
+            await self.command_award(what, meta, message)
+        elif what["command"] == "task":
+            await self.command_task(what, meta, message)
         elif what["command"] == "join":
             await self.command_join(what, meta, message)
         elif what["command"] == "leave":
             await self.command_leave(what, meta, message)
-        elif what["command"] == "feats":
-            await self.command_feats(what, meta, message)
 
     # Reacting to Discord events
 
@@ -1176,31 +1399,57 @@ class OriginClient(discord.Client):
 
     # Create Unum Events
 
-    async def complete_feats(self, message, fact):
+    async def complete_awards(self, message, fact):
         """
-        Complete feats if so
+        Complete awards if so
         """
 
-        for feat in unum_ledger.Feat.many(
+        for award in unum_ledger.Award.many(
             entity_id=fact.entity_id,
-            status__in=["requested", "accepted"],
-            what__source=self.daemon.origin.who
+            status__in=["requested", "accepted"]
         ):
 
             completed = []
 
             # Oh yes this is horribly inefficient but it's like no code
 
-            if feat.what__fact and unum_ledger.Fact.one(id=fact.id, **feat.what__fact).retrieve(False):
-                feat.status = "completed"
-                feat.update()
-                completed.append(feat.what__description)
+            if award.what__fact and unum_ledger.Fact.one(id=fact.id, **award.what__fact).retrieve(False):
+                award.status = "completed"
+                award.update()
+                completed.append(award.what__description)
 
             if completed:
-                text = f"{MEMES['*'] } completed Feats:"
+                text = f"{MEMES['*'] } completed Awards:"
 
-                for feat in completed:
-                    text += f"\n- {feat}"
+                for award in completed:
+                    text += f"\n- {award}"
+
+                await self.multi_send(message.channel, text, reference=message)
+
+    async def complete_tasks(self, message, fact):
+        """
+        Complete tasks if so
+        """
+
+        for task in unum_ledger.Task.many(
+            entity_id=fact.entity_id,
+            status__in=["requested", "accepted"]
+        ):
+
+            completed = []
+
+            # Oh yes this is horribly inefficient but it's like no code
+
+            if task.what__fact and unum_ledger.Fact.one(id=fact.id, **task.what__fact).retrieve(False):
+                task.status = "completed"
+                task.update()
+                completed.append(task.what__description)
+
+            if completed:
+                text = f"{MEMES['*'] } completed Tasks:"
+
+                for task in completed:
+                    text += f"\n- {task}"
 
                 await self.multi_send(message.channel, text, reference=message)
 
@@ -1209,7 +1458,7 @@ class OriginClient(discord.Client):
         Creates a fact if needed
         """
 
-        if fact["what"].get("command") not in ["help", "feat", "join", "leave"] and not self.is_active(fact["entity_id"]):
+        if fact["what"].get("command") not in ["help", "award", "join", "leave"] and not self.is_active(fact["entity_id"]):
             return
 
         fact = unum_ledger.Fact(**fact).create()
@@ -1219,29 +1468,42 @@ class OriginClient(discord.Client):
         await self.daemon.redis.xadd("ledger/fact", fields={"fact": json.dumps(fact.export())})
 
         if not fact.what__error and not fact.what__errors:
-            await self.complete_feats(message, fact)
+            await self.complete_awards(message, fact)
 
-    def ensure_feat(self, entity_id, who, **feat):
+    def ensure_award(self, entity_id, who, **award):
         """
-        Ensure a feat exists
+        Ensure a award exists
         """
 
-        unum_ledger.Feat.one(entity_id=entity_id, who=who).retrieve(False) or unum_ledger.Feat(
+        unum_ledger.Award.one(entity_id=entity_id, who=who).retrieve(False) or unum_ledger.Award(
             entity_id=entity_id,
             who=who,
             status="requested",
             when=time.time(),
-            **feat
+            **award
         ).create()
 
-    async def create_feats(self, entity_id, who):
+    def ensure_task(self, entity_id, who, status="inprogress",  **task):
         """
-        Creates feats if needed
+        Ensure a task exists
+        """
+
+        unum_ledger.Task.one(entity_id=entity_id, who=who).retrieve(False) or unum_ledger.Task(
+            entity_id=entity_id,
+            who=who,
+            status=status,
+            when=time.time(),
+            **task
+        ).create()
+
+    async def create_awards(self, entity_id, who):
+        """
+        Creates awards if needed
         """
 
         if who == self.daemon.origin.who:
 
-            self.ensure_feat(
+            self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help#{self.daemon.origin.meta__channel}",
                 what={
@@ -1256,7 +1518,7 @@ class OriginClient(discord.Client):
                 }
             )
 
-            self.ensure_feat(
+            self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help.{who}:private",
                 what={
@@ -1273,7 +1535,7 @@ class OriginClient(discord.Client):
 
             for command in self.daemon.origin.meta__commands[1:]:
 
-                self.ensure_feat(
+                self.ensure_award(
                     entity_id=entity_id,
                     who=f"command:help:{command['name']}#{self.daemon.origin.meta__channel}",
                     what={
@@ -1298,7 +1560,7 @@ class OriginClient(discord.Client):
 
         if source.who != "ledger":
 
-            self.ensure_feat(
+            self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help#{source.meta__channel}",
                 what={
@@ -1315,7 +1577,7 @@ class OriginClient(discord.Client):
 
             for command in self.daemon.origin.meta__commands[1:]:
 
-                self.ensure_feat(
+                self.ensure_award(
                     entity_id=entity_id,
                     who=f"command:help:{command['name']}#{source.meta__channel}",
                     what={
@@ -1332,7 +1594,7 @@ class OriginClient(discord.Client):
                 )
 
         if isinstance(source, unum_ledger.App):
-            self.ensure_feat(
+            self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help.{source.who}:public",
                 what={
@@ -1350,7 +1612,7 @@ class OriginClient(discord.Client):
 
         for command in source.meta__commands:
 
-            self.ensure_feat(
+            self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help.{source.who}:{command['name']}",
                 what={
@@ -1365,6 +1627,114 @@ class OriginClient(discord.Client):
                     }
                 }
             )
+
+    async def create_learn_tasks(self, entity_id, who):
+        """
+        Creates tasks from command awards if needed
+        """
+
+        await self.create_awards(entity_id, who)
+
+        for award in unum_ledger.Award.many(entity_id=entity_id, status="requested", what__source=who):
+            self.ensure_task(
+                entity_id=award.entity_id,
+                who=award.who,
+                what=award.what,
+                status=("done" if award.status == "completed" else "inprogress")
+            )
+            award.status = "accepted"
+            award.update()
+
+    async def create_qa_tasks(self, entity_id, who):
+        """
+        Creates awards if needed
+        """
+
+        # This makes sure all the help is run
+
+        await self.create_awards(entity_id, who)
+
+        source = unum_ledger.App.one(who=who).retrieve(False) or unum_ledger.Origin.one(who=who).retrieve(False)
+
+        if not source:
+            return
+
+        # We run every usage of every command
+
+        if source.who != "ledger":
+
+            for command in self.daemon.origin.meta__commands[1:]:
+
+                for usage in command.get("usages", [
+                    {
+                        "meme": command.get("meme", "*"),
+                        "name": "default",
+                        "description": command["description"]
+                    }
+                ]):
+
+                    self.ensure_task(
+                        entity_id=entity_id,
+                        who=f"command:{command['name']}.{usage['name']}#{source.meta__channel}",
+                        what={
+                            "source": source.who,
+                            "description": f"Run {usage['name']} usage for {command['name']} in {{channel:{source.meta__channel}}}",
+                            "fact": {
+                                "what__base": "command",
+                                "what__command": command['name'],
+                                "what__usage": usage['name'],
+                                "what__channel": source.meta__channel
+                            }
+                        }
+                    )
+
+        for command in source.meta__commands:
+
+            for usage in command.get("usages", [
+                {
+                    "meme": command.get("meme", "*"),
+                    "name": "default",
+                    "description": command["description"]
+                }
+            ]):
+
+                self.ensure_task(
+                    entity_id=entity_id,
+                    who=f"command:{command['name']}.{usage['name']}#{source.meta__channel}",
+                    what={
+                        "source": source.who,
+                        "description": f"Run {usage['name']} usage for {command['name']} in {source.who}",
+                        "fact": {
+                            "what__base": "command",
+                            "what__command": command['name'],
+                            "what__usage": usage['name'],
+                            "what__channel": source.meta__channel
+                        }
+                    }
+                )
+
+    async def create_scat_task(self, entity_id):
+        """
+        Creates awards if needed
+        """
+
+        for scat in unum_ledger.Scat.many(status="recorded"):
+            self.ensure_task(
+                entity_id=entity_id,
+                who=f"ledger.scat:{scat.id}",
+                what={
+                    "source": "ledger",
+                    "description": f"Looking into Scat: {scat.id}",
+                    "scat": {
+                        "id": scat.id,
+                        "status": "received"
+                    }
+                }
+            )
+            scat.status = "assigned"
+            return scat.update()
+
+        return 0
 
     # Recieving Unum Events
 

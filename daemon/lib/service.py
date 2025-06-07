@@ -36,8 +36,8 @@ help: |
   correctly. Such training is required before being allowed to use a command. You will get a friendly request to
   complete training, complete with the command to run.
 
-  Everytime you join an App, you'll get new Feats to accomplish. To see you reaming Feats to accomplish, type
-  `?feats`. Using `?feats` and `?help` this way should train you up on how to use all the features available to
+  Everytime you join an App, you'll get new Awards to accomplish. To see you reaming Awards to accomplish, type
+  `?award`. Using `?award` and `?help` this way should train you up on how to use all the awardures available to
   you here.
 
   Each channel has one or more Apps, each with its own set of Commands. If you message me privately, all commands
@@ -65,9 +65,76 @@ commands:
     - name: command
       description: The command to list the usages of
       valids: []
-- name: feats
-  meme: '?'
-  description: List your Feats in
+- name: scat
+  description: Comment riff or poop, on
+  requires: none
+  examples:
+  - meme: '!'
+    description: Record your concerns
+  - meme: '?'
+    description: List all unaissgned scats
+  usages:
+  - name: record
+    meme: '!'
+    description: Scat a problem, something wrong, for
+    args:
+    - name: thoughts
+      format: remainder
+  - name: list_unassigned
+    meme: '?'
+    description: List all scats currently unassigned
+  - name: list_since
+    meme: '?'
+    description: List your scats from {since} ago to now
+    args:
+    - name: since
+      description: How far back to list
+      format: duration
+  - name: list_from_to
+    meme: '?'
+    description: List your scats from {from} to {to}
+    args:
+    - name: from
+      description: How far back to start listing
+      format: duration
+    - name: to
+      description: How far back to stop listing
+      format: duration
+- name: award
+  description: List your Awards in
+  usages:
+  - name: list_incomplete
+    meme: '?'
+    description: List not completed
+  - name: list_all
+    meme: '?'
+    description: List all
+    args:
+    - name: all
+      valids:
+      - all
+- name: task
+  description: Manage your Tasks in
+  usages:
+  - name: assign
+    meme: '!'
+    description: Assign yourself tasks
+    args:
+    - name: work
+      valids:
+      - learn: Learn the commands available here
+      - qa: Run every command here
+      - scat: Assign yourself the most recent Scat
+  - name: list_incomplete
+    meme: '?'
+    description: List not completed
+  - name: list_all
+    meme: '?'
+    description: List all
+    args:
+    - name: all
+      valids:
+      - all
 - name: join
   meme: '!'
   description: Join
