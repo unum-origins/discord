@@ -31,7 +31,7 @@ help: |
   Everything here works via Commands. Commands that start with ? are questions abd ask me for information. Commands
   that start with ! are actions, asking me to change something.
 
-  For help you can type `?help` or just `?` by itself. To get more info on a command type `?help __command__`. Read
+  For help you can type `?help` or just `?` by itsel . To get more info on a command type `?help __command__`. Read
   the command help fully. It'll explain the context of the command, what it does, and how to format arguments
   correctly. Such training is required before being allowed to use a command. You will get a friendly request to
   complete training, complete with the command to run.
@@ -70,9 +70,9 @@ commands:
   requires: none
   examples:
   - meme: '!'
-    description: Record your concerns
+    description: Record your concerns for
   - meme: '?'
-    description: List all unaissgned scats
+    description: List all unaissgned scats for
   usages:
   - name: record
     meme: '!'
@@ -82,17 +82,17 @@ commands:
       format: remainder
   - name: list_unassigned
     meme: '?'
-    description: List all scats currently unassigned
+    description: List all scats currently unassigned for
   - name: list_since
     meme: '?'
-    description: List your scats from {since} ago to now
+    description: List your scats from {since} ago to now for
     args:
     - name: since
       description: How far back to list
       format: duration
   - name: list_from_to
     meme: '?'
-    description: List your scats from {from} to {to}
+    description: List your scats from {from} to {to} for
     args:
     - name: from
       description: How far back to start listing
@@ -105,7 +105,7 @@ commands:
   usages:
   - name: list_incomplete
     meme: '?'
-    description: List not completed
+    description: List not completed in
   - name: list_all
     meme: '?'
     description: List all
@@ -118,7 +118,7 @@ commands:
   usages:
   - name: assign
     meme: '!'
-    description: Assign yourself tasks
+    description: Assign yourself tasks in
     args:
     - name: work
       valids:
