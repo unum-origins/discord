@@ -7,9 +7,7 @@ Handles everything for the Discord Origin
 import time
 import copy
 import json
-import asyncio
-
-import pprint
+import yaml
 
 from emoji import EMOJI_DATA
 import discord
@@ -17,6 +15,7 @@ import discord.abc
 import discord.utils
 
 import service
+import unum_base
 import unum_ledger
 
 FORMATS = [
@@ -66,106 +65,35 @@ AWARDS = {
     "excepted": "❗"
 }
 
-class OriginClient(discord.Client):
+class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource):
     """
     Discord Client to handel the Discord origin
     """
 
-    daemon = None
+    logger = None
+    redis = None
+    origin = None
     pool = None
     apps = None
     orgins = None
     witness_entity_ids = None
     witness_user_ids = None
 
-    def __init__(self, *args, daemon=daemon, **kwargs):
+    def __init__(self, *args, daemon, **kwargs):
 
         super(OriginClient, self).__init__(*args, **kwargs)
 
-        self.daemon = daemon
-
-    # Security
-
-    def is_active(self, entity_id):
-        """
-        Checks to see if an enity is active
-        """
-
-        return (
-            unum_ledger.Entity.one(
-                id=entity_id,
-                status="active"
-            ).retrieve(False) is not None
-            and
-            unum_ledger.Witness.one(
-                entity_id=entity_id,
-                origin_id=self.daemon.origin.id,
-                status="active"
-            ).retrieve(False) is not None
-        )
-
-    # Parsing
-
-    def decode_time(self, arg):
-        """
-        Decodes 3d2h3m format to seconds
-
-        """
-
-        seconds = 0
-        current = ""
-
-        for letter in arg:
-
-            if '0' <= letter and letter <= '9':
-                current += letter
-            elif current and letter == 'd':
-                seconds += int(current) * 24*60*60
-                current = ""
-            elif current and letter == 'h':
-                seconds += int(current) * 60*60
-                current = ""
-            elif current and letter == 'm':
-                seconds += int(current) * 60
-                current = ""
-
-        return seconds
-
-    def encode_time(self, seconds):
-        """
-        Encodes seconds to 3d2h3m format
-        """
-
-        # Start with a blank string
-
-        arg = ""
-
-        # Determine and peel off the days, hours, and minutes
-
-        days = int(seconds/(24*60*60))
-        seconds -= days * 24*60*60
-        hours = int(seconds /(60*60))
-        seconds -= hours * 60*60
-        mins = int(seconds/(60))
-
-        # If there's a value, add it with its letter
-
-        if days:
-            arg += f"{days}d"
-
-        if hours:
-            arg += f"{hours}h"
-
-        if mins:
-            arg += f"{mins}m"
-
-        return arg
+        self.logger = daemon.logger
+        self.redis = daemon.redis
+        self.group = daemon.group
+        self.group_id = daemon.group_id
+        self.guild = daemon.creds["guild"]
 
     def decode_text(self, text):
 
         cleaned = text
 
-        for witness in unum_ledger.Witness.many(origin_id=self.daemon.origin.id):
+        for witness in unum_ledger.Witness.many(origin_id=self.origin.id):
             encode_text = f"<@{witness.who}>"
             decode_text = f"{{entity:{witness.entity_id}}}"
 
@@ -185,7 +113,7 @@ class OriginClient(discord.Client):
 
         cleaned = text
 
-        for witness in unum_ledger.Witness.many(origin_id=self.daemon.origin.id):
+        for witness in unum_ledger.Witness.many(origin_id=self.origin.id):
             encode_text = f"<@{witness.who}>"
             decode_text = f"{{entity:{witness.entity_id}}}"
 
@@ -338,13 +266,37 @@ class OriginClient(discord.Client):
             elif errors:
                 invalid.append(usage)
 
-        valid = [usage for usage in command["usages"] if usage not in invalid]
+        # Sort remainders by number of args. The one that matches with
+        # the most args is the best match since remainder can catch
+        # anything.
+
+        remainders = sorted([usage for usage in command["usages"] if
+            usage not in invalid and
+            usage.get("args") and
+            usage["args"][-1].get("format") == "remainder"
+        ], key=lambda usage: len(usage["args"]), reverse=True)
+
+        valid = [usage for usage in command["usages"] if usage not in invalid and usage not in remainders]
+
+        # If we can one valid, that's it
 
         if len(valid) == 1:
             what["usage"] = valid[0]["name"]
             what["values"] = valid[0]["values"]
-        elif len(valid) > 1:
-            valids = " and ".join([usage["name"] for usage in valid])
+
+        # if there's one remainder, or if there more than one remainder and
+        # the top one has more args than the nex, that's it
+
+        elif len(remainders) == 1 or (
+            len(remainders) > 1 and len(remainders[0]["args"]) > len(remainders[1]["args"])
+        ):
+            what["usage"] = remainders[0]["name"]
+            what["values"] = remainders[0]["values"]
+
+        # Nope, too many good ones
+
+        elif len(valid) > 1 or len(remainders):
+            valids = " and ".join([usage["name"] for usage in valid + remainders])
             what["error"] = f"too many valid usages: {valids}"
         elif len(invalid):
             closest = sorted(invalid, key=lambda close: len(close.get("errors", [])))[0]
@@ -465,7 +417,7 @@ class OriginClient(discord.Client):
 
             if origin:
                 what["origin"] = origin.who
-                if origin.id != self.daemon.origin.id:
+                if origin.id != self.origin.id:
                     commands.extend([{**command, "source": origin.who} for command in origin.meta__commands])
                 titles.append(origin.meta__title)
                 descriptions.append(origin.meta__description)
@@ -479,7 +431,7 @@ class OriginClient(discord.Client):
         # If nothing to search
 
         if not commands:
-            what["error"] = f"No Apps or Origin here - try `?help` in {{channel:{self.daemon.origin.meta__channel}}}"
+            what["error"] = f"No Apps or Origin here - try `?help` in {{channel:{self.origin.meta__channel}}}"
             return
 
         # now that we narrowed things down, we can add the common commands to all
@@ -491,7 +443,7 @@ class OriginClient(discord.Client):
 
         if kind == "public":
 
-            commands = self.daemon.origin.meta__commands + commands
+            commands = self.origin.meta__commands + commands
 
             self.encode_title(commands[0], title)
             self.encode_title(commands[1], title)
@@ -504,10 +456,10 @@ class OriginClient(discord.Client):
 
         elif kind == "private":
 
-            commands.insert(0, self.daemon.origin.meta__commands[0])
-            commands.insert(1, self.daemon.origin.meta__commands[1])
-            commands.insert(2, self.daemon.origin.meta__commands[2])
-            commands.insert(3, self.daemon.origin.meta__commands[3])
+            commands.insert(0, self.origin.meta__commands[0])
+            commands.insert(1, self.origin.meta__commands[1])
+            commands.insert(2, self.origin.meta__commands[2])
+            commands.insert(3, self.origin.meta__commands[3])
             self.encode_title(commands[0], title)
             self.encode_title(commands[1], title)
             self.encode_title(commands[2], title)
@@ -627,14 +579,22 @@ class OriginClient(discord.Client):
 
                 award = f"command:help:{command['name']}#{what['channel']}"
 
-                if not unum_ledger.Award.one(who=award, status="completed").retrieve(None):
+                if not unum_ledger.Award.one(
+                    entity_id=what.get("entity_id"),
+                    who=award,
+                    status="completed"
+                ).retrieve(None):
                     what["error"] = f"training required - in {{channel:{channel}}} please ask:\n- `?help {command['name']}`"
 
         elif command['name'] != "help":
 
             award = f"command:help.{command['source']}:{command['name']}"
 
-            if not unum_ledger.Award.one(who=award, status="completed").retrieve(None):
+            if not unum_ledger.Award.one(
+                entity_id=what.get("entity_id"),
+                who=award,
+                status="completed"
+            ).retrieve(None):
                 what["error"] = f"training required - please ask:\n- `?help.{command['source']} {command['name']}`"
 
     async def parse_ancestor(self, ancestor, what, meta):
@@ -740,7 +700,7 @@ class OriginClient(discord.Client):
         if "entity_id" not in what:
 
             unum = unum_ledger.Unum.one(who='self')
-            what["entity_id"] = unum_ledger.Entity(
+            entity = await self.journal_change("create", unum_ledger.Entity(
                 unum_id=unum.id,
                 who=meta["author"]["name"],
                 status="inactive",
@@ -752,16 +712,18 @@ class OriginClient(discord.Client):
                         "noise": "loud"
                     }
                 }
-            ).create().id
+            ))
 
-            unum_ledger.Witness(
+            what["entity_id"] = entity.id
+
+            await self.journal_change("create", unum_ledger.Witness(
                 entity_id=what["entity_id"],
-                origin_id=self.daemon.origin.id,
+                origin_id=self.origin.id,
                 who=message.author.id,
                 status="inactive"
-            ).create()
+            ))
 
-            await self.create_awards(what["entity_id"], self.daemon.origin.who)
+            await self.create_awards(what["entity_id"], self.origin.who)
 
         if "origin" in what:
             await self.create_awards(what["entity_id"], what["origin"])
@@ -877,8 +839,7 @@ class OriginClient(discord.Client):
 
                 if herald.status == "inactive":
 
-                    herald.status = "active"
-                    herald.update()
+                    await self.journal_change("update", herald, {"status": "active"})
                     backs.append(app.meta__title)
 
                 else:
@@ -887,20 +848,20 @@ class OriginClient(discord.Client):
 
             else:
 
-                unum_ledger.Herald(
+                herald = await self.journal_change("create", unum_ledger.Herald(
                     entity_id=what["entity_id"],
                     app_id=app.id,
                     status="active"
-                ).create()
+                ))
 
                 welcomes.append(app.meta__title)
 
             await self.create_awards(what["entity_id"], app.who)
 
-        if what.get("origin") == self.daemon.origin.who:
+        if what.get("origin") == self.origin.who:
 
             witness = unum_ledger.Witness.one(
-                origin_id=self.daemon.origin.id,
+                origin_id=self.origin.id,
                 who=user_id
             ).retrieve()
 
@@ -908,17 +869,19 @@ class OriginClient(discord.Client):
 
             if entity.status == "inactive":
 
-                entity.status = "active"
-                entity.update()
+                await self.journal_change("update", entity, {"status": "active"})
 
             if witness.status == "inactive":
 
+                await self.journal_change("update", witness, {"status": "active"})
+
+                before = entity.export()
                 witness.status = "active"
                 witness.update()
 
-            welcomes.append(self.daemon.origin.meta__title)
+            welcomes.append(self.origin.meta__title)
 
-        elif what.get("origin") and what["origin"] != self.daemon.origin.who:
+        elif what.get("origin") and what["origin"] != self.origin.who:
 
             await self.create_awards(what["entity_id"], what["origin"])
 
@@ -968,8 +931,7 @@ class OriginClient(discord.Client):
 
                 if herald.status == "active":
 
-                    herald.status = "inactive"
-                    herald.update()
+                    await self.journal_change("update", herald, {"status": "inactive"})
                     lefts.append(app.meta__title)
 
                 else:
@@ -980,10 +942,10 @@ class OriginClient(discord.Client):
 
                 nevers.append(app.meta__title)
 
-        if what.get("origin") == self.daemon.origin.who:
+        if what.get("origin") == self.origin.who:
 
             witness = unum_ledger.Witness.one(
-                origin_id=self.daemon.origin.id,
+                origin_id=self.origin.id,
                 who=user_id
             ).retrieve(False)
 
@@ -993,22 +955,20 @@ class OriginClient(discord.Client):
 
                 if entity.status == "active":
 
-                    entity.status = "inactive"
-                    entity.update()
+                    await self.journal_change("update", entity, {"status": "inactive"})
 
                 if witness.status == "active":
 
-                    witness.status = "inactive"
-                    witness.update()
-                    lefts.append(self.daemon.origin.meta__title)
+                    await self.journal_change("update", witness, {"status": "inactive"})
+                    lefts.append(self.origin.meta__title)
 
                 else:
 
-                    alreadys.append(self.daemon.origin.meta__title)
+                    alreadys.append(self.origin.meta__title)
 
             else:
 
-                nevers.append(self.daemon.origin.meta__title)
+                nevers.append(self.origin.meta__title)
 
         comments = []
 
@@ -1038,7 +998,7 @@ class OriginClient(discord.Client):
         user_id = meta["author"]["id"]
 
         herald = unum_ledger.Witness.one(
-            origin_id=self.daemon.origin.id,
+            origin_id=self.origin.id,
             who=user_id
         ).retrieve(False)
 
@@ -1049,7 +1009,7 @@ class OriginClient(discord.Client):
 
         if meme == "!":
 
-            scat = unum_ledger.Scat(
+            scat = await self.journal_change("create", unum_ledger.Scat(
                 entity_id=entity_id,
                 who=f"discord.message:{message.id}",
                 status="recorded",
@@ -1058,9 +1018,29 @@ class OriginClient(discord.Client):
                     "description": values["thoughts"],
                     "on": what
                 }
-            ).create()
+            ))
 
-            text = f"scatted {values['thoughts']}"
+            if usage == "assign":
+
+                await self.ensure_task(
+                    entity_id=entity_id,
+                    who=f"ledger.scat:{scat.id}",
+                    what={
+                        "source": "ledger",
+                        "description": f"Looking into Scat: {scat.what__description}",
+                        "scat": {
+                            "id": scat.id
+                        }
+                    }
+                )
+
+                await self.journal_change("update", scat, {"status": "assigned"})
+
+                text = f"scatted and assigned to you {values['thoughts']}"
+
+            else:
+
+                text = f"scatted {values['thoughts']}"
 
         elif meme == "?":
 
@@ -1106,7 +1086,7 @@ class OriginClient(discord.Client):
         user_id = meta["author"]["id"]
 
         herald = unum_ledger.Witness.one(
-            origin_id=self.daemon.origin.id,
+            origin_id=self.origin.id,
             who=user_id
         ).retrieve(False)
 
@@ -1154,7 +1134,7 @@ class OriginClient(discord.Client):
         user_id = meta["author"]["id"]
 
         herald = unum_ledger.Witness.one(
-            origin_id=self.daemon.origin.id,
+            origin_id=self.origin.id,
             who=user_id
         ).retrieve(False)
 
@@ -1272,12 +1252,12 @@ class OriginClient(discord.Client):
         if what.get("command"):
             await self.on_command(what, meta, message)
 
-        self.daemon.logger.info("statement", extra={"what": what, "meta": meta})
+        self.logger.info("statement", extra={"what": what, "meta": meta})
 
         if "entity_id" in what:
             await self.create_fact(
                 message,
-                origin_id=self.daemon.origin.id,
+                origin_id=self.origin.id,
                 entity_id=what["entity_id"],
                 who=f"message:{message.id}",
                 when=time.mktime(message.created_at.timetuple()),
@@ -1292,12 +1272,12 @@ class OriginClient(discord.Client):
 
         what, meta = await self.parse_reaction(reaction, user)
 
-        self.daemon.logger.info("reaction", extra={"what": what, "meta": meta})
+        self.logger.info("reaction", extra={"what": what, "meta": meta})
 
         if "entity_id" in what:
             await self.create_fact(
                 reaction.mesage,
-                origin_id=self.daemon.origin.id,
+                origin_id=self.origin.id,
                 entity_id=what["entity_id"],
                 who=f"reaction:{reaction.message.id}:{reaction.emoji}",
                 when=time.mktime(reaction.message.created_at.timetuple()),
@@ -1310,7 +1290,7 @@ class OriginClient(discord.Client):
         Called when starting up
         """
 
-        self.daemon.logger.info(f"logged in as {self.user}", extra={"id": self.user.id})
+        self.logger.info(f"logged in as {self.user}", extra={"id": self.user.id})
 
     # Executing Unum Acts
 
@@ -1368,7 +1348,7 @@ class OriginClient(discord.Client):
             if command:
                 command += f".{app.who}"
 
-            guild = await self.fetch_guild(self.daemon.origin.meta__guild__id)
+            guild = await self.fetch_guild(self.origin.meta__guild__id)
 
             target = await guild.fetch_member(unum_ledger.Witness.one(entity_id=entity_id).who)
 
@@ -1429,8 +1409,8 @@ class OriginClient(discord.Client):
             # Oh yes this is horribly inefficient but it's like no code
 
             if award.what__fact and unum_ledger.Fact.one(id=fact.id, **award.what__fact).retrieve(False):
-                award.status = "completed"
-                award.update()
+
+                await self.journal_change("update", award, {"status": "completed"})
                 completed.append(award.what__description)
 
             if completed:
@@ -1456,8 +1436,8 @@ class OriginClient(discord.Client):
             # Oh yes this is horribly inefficient but it's like no code
 
             if task.what__fact and unum_ledger.Fact.one(id=fact.id, **task.what__fact).retrieve(False):
-                task.status = "done"
-                task.update()
+
+                await self.journal_change("update", task, {"status": "done"})
                 completed.append(task.what__description)
 
             if completed:
@@ -1476,72 +1456,78 @@ class OriginClient(discord.Client):
         if fact["what"].get("command") not in ["help", "award", "join", "leave"] and not self.is_active(fact["entity_id"]):
             return
 
-        fact = unum_ledger.Fact(**fact).create()
+        fact = await self.journal_change("create", unum_ledger.Fact(**fact))
 
-        self.daemon.logger.info("fact", extra={"fact": {"id": fact.id}})
+        self.logger.info("fact", extra={"fact": {"id": fact.id}})
         service.FACTS.observe(1)
-        await self.daemon.redis.xadd("ledger/fact", fields={"fact": json.dumps(fact.export())})
+        await self.redis.xadd("ledger/fact", fields={"fact": json.dumps(fact.export())})
 
         if not fact.what__error and not fact.what__errors:
             await self.complete_awards(message, fact)
             await self.complete_tasks(message, fact)
 
-    def ensure_award(self, entity_id, who, **award):
+    async def ensure_award(self, entity_id, who, **award):
         """
         Ensure a award exists
         """
 
-        unum_ledger.Award.one(entity_id=entity_id, who=who).retrieve(False) or unum_ledger.Award(
+        if unum_ledger.Award.one(entity_id=entity_id, who=who).retrieve(False):
+            return
+
+        award = await self.journal_change("create", unum_ledger.Award(
             entity_id=entity_id,
             who=who,
             status="requested",
             when=time.time(),
             **award
-        ).create()
+        ))
 
-    def ensure_task(self, entity_id, who, status="inprogress",  **task):
+    async def ensure_task(self, entity_id, who, status="inprogress",  **task):
         """
         Ensure a task exists
         """
 
-        unum_ledger.Task.one(entity_id=entity_id, who=who).retrieve(False) or unum_ledger.Task(
+        if unum_ledger.Task.one(entity_id=entity_id, who=who).retrieve(False):
+            return
+
+        task = await self.journal_change("create", unum_ledger.Task(
             entity_id=entity_id,
             who=who,
             status=status,
             when=time.time(),
             **task
-        ).create()
+        ))
 
     async def create_awards(self, entity_id, who):
         """
         Creates awards if needed
         """
 
-        if who == self.daemon.origin.who:
+        if who == self.origin.who:
 
-            self.ensure_award(
+            await self.ensure_award(
                 entity_id=entity_id,
-                who=f"command:help#{self.daemon.origin.meta__channel}",
+                who=f"command:help#{self.origin.meta__channel}",
                 what={
-                    "source": self.daemon.origin.who,
-                    "description": f"Run help publicly in {{channel:{self.daemon.origin.meta__channel}}}",
+                    "source": self.origin.who,
+                    "description": f"Run help publicly in {{channel:{self.origin.meta__channel}}}",
                     "fact": {
-                        "what__origin": self.daemon.origin.who,
+                        "what__origin": self.origin.who,
                         "what__base": "command",
                         "what__command": "help",
-                        "what__channel": self.daemon.origin.meta__channel
+                        "what__channel": self.origin.meta__channel
                     }
                 }
             )
 
-            self.ensure_award(
+            await self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help.{who}:private",
                 what={
-                    "source": self.daemon.origin.who,
+                    "source": self.origin.who,
                     "description": f"Run help privately for {who}",
                     "fact": {
-                        "what__origin": self.daemon.origin.who,
+                        "what__origin": self.origin.who,
                         "what__base": "command",
                         "what__kind": "private",
                         "what__command": "help"
@@ -1549,19 +1535,19 @@ class OriginClient(discord.Client):
                 }
             )
 
-            for command in self.daemon.origin.meta__commands[1:]:
+            for command in self.origin.meta__commands[1:]:
 
-                self.ensure_award(
+                await self.ensure_award(
                     entity_id=entity_id,
-                    who=f"command:help:{command['name']}#{self.daemon.origin.meta__channel}",
+                    who=f"command:help:{command['name']}#{self.origin.meta__channel}",
                     what={
-                        "source": self.daemon.origin.who,
-                        "description": f"Get help for {command['name']} in {{channel:{self.daemon.origin.meta__channel}}}",
+                        "source": self.origin.who,
+                        "description": f"Get help for {command['name']} in {{channel:{self.origin.meta__channel}}}",
                         "fact": {
                             "what__base": "command",
                             "what__command": "help",
                             "what__usage": "command",
-                            "what__channel": self.daemon.origin.meta__channel,
+                            "what__channel": self.origin.meta__channel,
                             "what__values__command": command['name']
                         }
                     }
@@ -1576,7 +1562,7 @@ class OriginClient(discord.Client):
 
         if source.who != "ledger":
 
-            self.ensure_award(
+            await self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help#{source.meta__channel}",
                 what={
@@ -1591,9 +1577,9 @@ class OriginClient(discord.Client):
                 }
             )
 
-            for command in self.daemon.origin.meta__commands[1:]:
+            for command in self.origin.meta__commands[1:]:
 
-                self.ensure_award(
+                await self.ensure_award(
                     entity_id=entity_id,
                     who=f"command:help:{command['name']}#{source.meta__channel}",
                     what={
@@ -1610,7 +1596,8 @@ class OriginClient(discord.Client):
                 )
 
         if isinstance(source, unum_ledger.App):
-            self.ensure_award(
+
+            await self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help.{source.who}:public",
                 what={
@@ -1628,7 +1615,7 @@ class OriginClient(discord.Client):
 
         for command in source.meta__commands:
 
-            self.ensure_award(
+            await self.ensure_award(
                 entity_id=entity_id,
                 who=f"command:help.{source.who}:{command['name']}",
                 what={
@@ -1652,14 +1639,15 @@ class OriginClient(discord.Client):
         await self.create_awards(entity_id, who)
 
         for award in unum_ledger.Award.many(entity_id=entity_id, status="requested", what__source=who):
-            self.ensure_task(
+
+            await self.ensure_task(
                 entity_id=award.entity_id,
                 who=award.who,
                 what=award.what,
                 status=("done" if award.status == "completed" else "inprogress")
             )
-            award.status = "accepted"
-            award.update()
+
+            await self.journal_change("update", award, {"status": "accepted"})
 
     async def create_qa_tasks(self, entity_id, who):
         """
@@ -1679,7 +1667,7 @@ class OriginClient(discord.Client):
 
         if source.who != "ledger":
 
-            for command in self.daemon.origin.meta__commands[1:]:
+            for command in self.origin.meta__commands[1:]:
 
                 if command["name"] in ["join", "leave"]:
                     continue
@@ -1692,7 +1680,7 @@ class OriginClient(discord.Client):
                     }
                 ]):
 
-                    self.ensure_task(
+                    await self.ensure_task(
                         entity_id=entity_id,
                         who=f"command:{command['name']}.{usage['name']}#{source.meta__channel}",
                         what={
@@ -1720,7 +1708,7 @@ class OriginClient(discord.Client):
                 }
             ]):
 
-                self.ensure_task(
+                await self.ensure_task(
                     entity_id=entity_id,
                     who=f"command:{command['name']}.{usage['name']}#{source.meta__channel}",
                     what={
@@ -1741,20 +1729,20 @@ class OriginClient(discord.Client):
         """
 
         for scat in unum_ledger.Scat.many(status="recorded"):
-            self.ensure_task(
+
+            await self.ensure_task(
                 entity_id=entity_id,
                 who=f"ledger.scat:{scat.id}",
                 what={
                     "source": "ledger",
-                    "description": f"Looking into Scat: {scat.id}",
+                    "description": f"Looking into Scat: {scat.what__description or scat.id}",
                     "scat": {
-                        "id": scat.id,
-                        "status": "received"
+                        "id": scat.id
                     }
                 }
             )
-            scat.status = "assigned"
-            return scat.update()
+
+            return await self.journal_change("update", scat, {"status": "assigned"})
 
         return 0
 
@@ -1766,23 +1754,23 @@ class OriginClient(discord.Client):
         """
 
         if (
-            not await self.daemon.redis.exists("ledger/act") or
-            self.daemon.group not in [group["name"]
-            for group in await self.daemon.redis.xinfo_groups("ledger/act")]
+            not await self.redis.exists("ledger/act") or
+            self.group not in [group["name"]
+            for group in await self.redis.xinfo_groups("ledger/act")]
         ):
-            await self.daemon.redis.xgroup_create("ledger/act", self.daemon.group, mkstream=True)
+            await self.redis.xgroup_create("ledger/act", self.group, mkstream=True)
 
         while True:
 
-            message = await self.daemon.redis.xreadgroup(
-                self.daemon.group, self.daemon.group_id, {"ledger/act": ">"}, count=1, block=500
+            message = await self.redis.xreadgroup(
+                self.group, self.group_id, {"ledger/act": ">"}, count=1, block=500
             )
 
             if not message or "act" not in message[0][1][0][1]:
                 continue
 
             instance = json.loads(message[0][1][0][1]["act"])
-            self.daemon.logger.info("act", extra={"act": instance})
+            self.logger.info("act", extra={"act": instance})
             service.ACTS.observe(1)
 
             if not self.is_active(instance["entity_id"]):
@@ -1793,12 +1781,19 @@ class OriginClient(discord.Client):
             elif instance["what"]["base"] == "reaction":
                 await self.act_reaction(instance)
 
-            await self.daemon.redis.xack("ledger/act", self.daemon.group, message[0][1][0][0])
+            await self.redis.xack("ledger/act", self.group, message[0][1][0][0])
 
     async def setup_hook(self):
         """
         Register our Fact and Act listeners
         """
+
+        self.origin = unum_ledger.Origin.one(who=service.WHO).retrieve(False)
+
+        if not self.origin:
+            self.origin = await self.journal_change("create", unum_ledger.Origin(who=service.WHO))
+
+        await self.journal_change("update", self.origin, {"meta": {**yaml.safe_load(service.META), **{"guild": self.guild}}})
 
         self.loop.create_task(self.on_acts())
 

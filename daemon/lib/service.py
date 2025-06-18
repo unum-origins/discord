@@ -71,6 +71,9 @@ commands:
   examples:
   - meme: '!'
     description: Record your concerns for
+  - meme: '!'
+    description: Record and assign your concerns for
+    args: task
   - meme: '?'
     description: List all unaissgned scats for
   usages:
@@ -78,6 +81,15 @@ commands:
     meme: '!'
     description: Scat a problem, something wrong, for
     args:
+    - name: thoughts
+      format: remainder
+  - name: assign
+    meme: '!'
+    description: Scat a problem, and assign to you as a task, for
+    args:
+    - name: task
+      valids:
+      - task
     - name: thoughts
       format: remainder
   - name: list_unassigned
@@ -145,7 +157,7 @@ commands:
 """
 NAME = f"{WHO}-daemon"
 
-class Daemon: # pylint: disable=too-few-public-methods
+class Daemon(): # pylint: disable=too-few-public-methods
     """
     Daemon class
     """
@@ -162,17 +174,10 @@ class Daemon: # pylint: disable=too-few-public-methods
 
         self.source = relations_rest.Source(self.unifist, url=f"http://api.{self.unifist}")
 
+        self.redis = redis.Redis(host=f'redis.{self.unifist}', encoding="utf-8", decode_responses=True)
+
         with open("/opt/service/secret/discord.json", "r") as creds_file:
             self.creds = json.load(creds_file)
-
-        if not unum_ledger.Origin.one(who=WHO).retrieve(False):
-            unum_ledger.Origin(who=WHO).create()
-
-        self.origin = unum_ledger.Origin.one(who=WHO)
-        self.origin.meta={**yaml.safe_load(META), **{"guild": self.creds["guild"]}}
-        self.origin.update()
-
-        self.redis = redis.Redis(host=f'redis.{self.unifist}', encoding="utf-8", decode_responses=True)
 
     def run(self):
         """
