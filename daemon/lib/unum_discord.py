@@ -14,6 +14,8 @@ import discord
 import discord.abc
 import discord.utils
 
+import overscore
+
 import service
 import unum_base
 import unum_ledger
@@ -65,7 +67,7 @@ AWARDS = {
     "excepted": "❗"
 }
 
-class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource):
+class OriginClient(discord.Client, unum_base.OriginSource):
     """
     Discord Client to handel the Discord origin
     """
@@ -88,6 +90,72 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
         self.group = daemon.group
         self.group_id = daemon.group_id
         self.guild = daemon.creds["guild"]
+
+    async def journal_change(
+            self,
+            action,
+            model,
+            change=None
+        ):
+        """
+        Makes a change and journals it
+        """
+
+        create = True
+        who = f"{action}:{model.NAME}.{model.SOURCE}"
+        what = {
+            "action": action,
+            "app": model.SOURCE,
+            "block": model.NAME
+        }
+
+        if action == "create":
+
+            model = model.create()
+            what["after"] = model.export()
+
+        who += f":{model.id}"
+        what["id"] = model.id
+
+        if action == "update":
+
+            what["before"] = model.export()
+
+            for key, value in change.items():
+
+                path = overscore.parse(key)
+
+                current = model
+
+                for place in path[:-1]:
+                    current = current[place]
+
+                current[path[-1]] = value
+
+            what["after"] = model.export()
+
+            create = model.update()
+
+        elif action == "delete":
+
+            what["before"] = model.export()
+
+            create = model.delete()
+
+        if create:
+            journal = unum_ledger.Journal(
+                who=who,
+                what=what,
+                when=time.time()
+            ).create()
+
+            self.logger.info("journal", extra={"journal": {"id": journal.id}})
+            await self.redis.xadd("ledger/journal", fields={"journal": json.dumps(journal.export())})
+
+        if action == "create":
+            return model
+
+        return create
 
     def decode_text(self, text):
 
@@ -603,6 +671,10 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
         """
 
         while ancestor.reference:
+
+            if ancestor.content and ancestor.content[0] in ['!', '?', '*']:
+                break
+
             ancestor = await ancestor.channel.fetch_message(ancestor.reference.message_id)
 
         what["ancestor"], meta["ancestor"]= await self.parse_statement(ancestor)
@@ -678,17 +750,21 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
         Sends
         """
 
-        while text:
+        texts = text if isinstance(text, list) else [text]
 
-            if len(text) > 2000:
-                closest = text[:2000].rfind('\n')
-                current = text[:closest]
-                text = text[(closest+1):]
-            else:
-                current = text
-                text = ""
+        for text in texts:
 
-            await channel.send(self.encode_text(current), reference=reference)
+            while text:
+
+                if len(text) > 2000:
+                    closest = text[:1950].rfind('\n')
+                    current = text[:closest]
+                    text = text[(closest+1):]
+                else:
+                    current = text
+                    text = ""
+
+                await channel.send(self.encode_text(current), reference=reference)
 
     async def command_help(self, what, meta, message):
         """
@@ -995,12 +1071,6 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
         """
 
         channel = message.channel
-        user_id = meta["author"]["id"]
-
-        herald = unum_ledger.Witness.one(
-            origin_id=self.origin.id,
-            who=user_id
-        ).retrieve(False)
 
         entity_id = what["entity_id"]
         meme = what["meme"]
@@ -1046,10 +1116,10 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
 
             if usage == "list_unassigned":
 
-                text = "♥️ unassigned scats are:"
+                text = ["♥️ unassigned scats are (👍 to assign, ♥️ to complete):"]
 
                 for scat in unum_ledger.Scat.many(status="recorded"):
-                    text += f"\n- {scat.what__description} - {scat.status}"
+                    text.append(f"*scat:{scat.id} {scat.what__description} - {scat.status}")
 
             else:
 
@@ -1059,13 +1129,13 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
                 if usage == "list_since":
 
                     when_min = values["since"]
-                    text = f"♥️ your scats from {self.encode_time(when_min) or 'now'} are:"
+                    text = [f"♥️ your scats from {self.encode_time(when_min) or 'now'} are (👍 to assign, ♥️ to complete):"]
 
                 elif usage == "list_from_to":
 
                     when_min = values["from"]
                     when_max = values["to"]
-                    text = f"♥️ your scats from {self.encode_time(when_min) or 'now'} to {self.encode_time(when_max) or 'now'} are:"
+                    text = [f"♥️ your scats from {self.encode_time(when_min) or 'now'} to {self.encode_time(when_max) or 'now'} are (👍 to assign, ♥️ to complete):"]
 
                 for scat in unum_ledger.Scat.many(
                     entity_id=entity_id,
@@ -1073,9 +1143,55 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
                     when__lte=now - when_max
                 ):
                     when = self.encode_time(now - scat.when) or "now"
-                    text += f"\n- {scat.what__description} - {scat.status} - {when}"
+                    text.append(f"*scat:{scat.id} {scat.what__description} - {scat.status} - {when}")
 
         await self.multi_send(channel, text, reference=message)
+
+    async def reaction_scat(self, what, meta, reaction):
+        """
+        Reacts to a scat or lists them
+        """
+
+        channel = reaction.message.channel
+        entity_id = what["entity_id"]
+        meme = what["meme"]
+        id = what["ancestor"]["id"]
+
+        scat = unum_ledger.Scat.one(id)
+
+        if meme == "+":
+
+            await self.ensure_task(
+                entity_id=entity_id,
+                who=f"ledger.scat:{scat.id}",
+                what={
+                    "source": "ledger",
+                    "description": f"Looking into Scat: {scat.what__description}",
+                    "scat": {
+                        "id": scat.id
+                    }
+                }
+            )
+
+            await self.journal_change("update", scat, {"status": "assigned"})
+
+            text = f"assigned to you {scat.what__description}"
+
+        elif meme == "*":
+
+            await self.journal_change("update", scat, {"status": "received"})
+
+            text = f"completed {scat.what__description}"
+
+            task = unum_ledger.Task.one(what__scat__id=scat.id).retrieve(False)
+
+            if task:
+
+                await self.journal_change("update", task, {"status": "done"})
+
+                text += " and its task"
+
+        await self.multi_send(channel, text, reference=reaction.message)
 
     async def command_award(self, what, meta, message):
         """
@@ -1179,31 +1295,59 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
 
             if usage == "list_incomplete":
 
-                text = "♥️ your incomplete tasks are:"
+                text = ["♥️ your incomplete tasks are (♥️ to complete):"]
 
                 if what.get("origin"):
                     for task in unum_ledger.Task.many(entity_id=entity_id, status__not_eq="done", what__source=what["origin"]):
-                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
                 for app in what.get("apps", []):
                     for task in unum_ledger.Task.many(entity_id=entity_id, status__not_eq="done", what__source=app):
-                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
             else:
 
-                text = "♥️ your tasks are:"
+                text = ["♥️ your tasks are (♥️ to complete):"]
 
                 if what.get("origin"):
                     for task in unum_ledger.Task.many(entity_id=entity_id, what__source=what["origin"]):
-                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
                 for app in what.get("apps", []):
                     for task in unum_ledger.Task.many(entity_id=entity_id, what__source=app):
-                        text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
         await self.multi_send(channel, text, reference=message)
 
-    async def on_command(self, what, meta, message):
+    async def reaction_task(self, what, meta, reaction):
+        """
+        Reacts to a scat or lists them
+        """
+
+        channel = reaction.message.channel
+        entity_id = what["entity_id"]
+        meme = what["meme"]
+        id = what["ancestor"]["id"]
+
+        task = unum_ledger.Task.one(id)
+
+        if meme == "*":
+
+            await self.journal_change("update", task, {"status": "done"})
+
+            text = f"completed {task.what__description}"
+
+            scat = unum_ledger.Scat.one(task.what__scat__id).retrieve(False)
+
+            if task:
+
+                await self.journal_change("update", scat, {"status": "received"})
+
+                text += " and its scat"
+
+        await self.multi_send(channel, text, reference=reaction.message)
+
+    async def do_command(self, what, meta, message):
         """
         If there's a command that doesn't require creation
         """
@@ -1237,6 +1381,20 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
         elif what["command"] == "task":
             await self.command_task(what, meta, message)
 
+    async def do_reaction(self, what, meta, reaction):
+        """
+        Perform the who
+        """
+
+        name = what["ancestor"]["command"]
+
+        if name == "scat":
+            await self.reaction_scat(what, meta, reaction)
+        elif name == "award":
+            await self.reaction_award(what, meta, reaction)
+        elif name == "task":
+            await self.reaction_task(what, meta, reaction)
+
     # Reacting to Discord events
 
     async def on_message(self, message):
@@ -1250,7 +1408,7 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
             return
 
         if what.get("command"):
-            await self.on_command(what, meta, message)
+            await self.do_command(what, meta, message)
 
         self.logger.info("statement", extra={"what": what, "meta": meta})
 
@@ -1272,11 +1430,14 @@ class OriginClient(discord.Client, unum_base.AsycSource, unum_base.OriginSource)
 
         what, meta = await self.parse_reaction(reaction, user)
 
+        if what.get("ancestor", {}).get("command"):
+            await self.do_reaction(what, meta, reaction)
+
         self.logger.info("reaction", extra={"what": what, "meta": meta})
 
         if "entity_id" in what:
             await self.create_fact(
-                reaction.mesage,
+                reaction.message,
                 origin_id=self.origin.id,
                 entity_id=what["entity_id"],
                 who=f"reaction:{reaction.message.id}:{reaction.emoji}",

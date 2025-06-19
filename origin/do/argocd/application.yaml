@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: discord
+spec:
+  project: discord
+  source:
+    repoURL: https://github.com/unifist/platform
+    path: unums/{{ unum }}/origins/discord
+    targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: discord
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
