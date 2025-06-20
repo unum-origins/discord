@@ -1372,14 +1372,26 @@ class OriginClient(discord.Client, unum_base.OriginSource):
         elif what["command"] == "leave":
             await self.command_leave(what, meta, message)
         elif not self.is_active(what.get("entity_id")):
-            text = f'❗ not active - need to join first'
+            text = f'❗ not active - need to join fi rst'
             await self.multi_send(channel, text, reference=message)
-        elif what["command"] == "scat":
-            await self.command_scat(what, meta, message)
-        elif what["command"] == "award":
-            await self.command_award(what, meta, message)
-        elif what["command"] == "task":
-            await self.command_task(what, meta, message)
+        else:
+
+            app = unum_ledger.App.one(who=what.get("source")).retrieve(False)
+
+            if app and not unum_ledger.Herald.one(
+                entity_id=what.get("entity_id"),
+                app_id=app.id,
+                status="active"
+            ).retrieve(False):
+                text = f'❗ not active - need to join fi rst'
+                await self.multi_send(channel, text, reference=message)
+            elif what["command"] == "scat":
+                await self.command_scat(what, meta, message)
+            elif what["command"] == "award":
+                await self.command_award(what, meta, message)
+            elif what["command"] == "task":
+                await self.command_task(what, meta, message)
+
 
     async def do_reaction(self, what, meta, reaction):
         """
