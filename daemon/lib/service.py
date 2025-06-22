@@ -7,7 +7,6 @@ Module for the Daemon
 import os
 import micro_logger
 import json
-import yaml
 
 import redis.asyncio as redis
 

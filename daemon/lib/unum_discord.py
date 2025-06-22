@@ -2,7 +2,7 @@
 Handles everything for the Discord Origin
 """
 
-# pylint: disable=unsupported-membership-test
+# pylint: disable=unsupported-membership-test,too-many-lines,no-self-use,undefined-loop-variable,unused-argument,too-many-locals,len-as-condition,too-many-branches,too-many-statements,unused-variable,assigning-non-slot,too-many-nested-blocks,invalid-overridden-method,too-many-return-statements,redefined-outer-name,too-many-public-methods,line-too-long,redefined-argument-from-local
 
 import time
 import copy
@@ -158,6 +158,9 @@ class OriginClient(discord.Client, unum_base.OriginSource):
         return create
 
     def decode_text(self, text):
+        """
+        Take Discord text and makes it Unum friendly
+        """
 
         cleaned = text
 
@@ -178,6 +181,9 @@ class OriginClient(discord.Client, unum_base.OriginSource):
         return cleaned
 
     def encode_text(self, text):
+        """
+        Take Unum text and makes it Discord friendly
+        """
 
         cleaned = text
 
@@ -405,7 +411,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
         # Needs ot be either a question or an action
 
-        if not text or text[0] not in ["?", "*","!"]:
+        if not text or text[0] not in ["?", "*", "!"]:
             return
 
         # We know it's a command and it's meme
@@ -545,7 +551,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
         # Too many
 
-        elif len(found) > 1:
+        if len(found) > 1:
 
             if kind == "public":
                 text = "too many matching commands found - ?help won't help"
@@ -680,7 +686,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
             ancestor = await ancestor.channel.fetch_message(ancestor.reference.message_id)
 
-        what["ancestor"], meta["ancestor"]= await self.parse_statement(ancestor)
+        what["ancestor"], meta["ancestor"] = await self.parse_statement(ancestor)
 
     async def parse_statement(self, message):
         """
@@ -692,7 +698,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
         self.parse_kind(message, what, meta)
 
-        what["text"]  = self.decode_text(message.content)
+        what["text"] = self.decode_text(message.content)
         what["meme"] = self.parse_meme(what["text"])
 
         self.parse_command(what)
@@ -733,7 +739,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
             "emoji": reaction.emoji,
             "meme":  self.parse_meme(reaction.emoji)
         }
-        meta =  {
+        meta = {
             "user": self.parse_user(user)
         }
 
@@ -1442,7 +1448,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
                 app_id=app.id,
                 status="active"
             ).retrieve(False)):
-                text = f'❗ not active - need to join first'
+                text = '❗ not active - need to join first'
                 await self.multi_send(channel, text, reference=message)
             elif what["command"] == "scat":
                 await self.command_scat(what, meta, message)
@@ -1714,7 +1720,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
             **award
         ))
 
-    async def ensure_task(self, entity_id, who, status="inprogress",  **task):
+    async def ensure_task(self, entity_id, who, status="inprogress", **task):
         """
         Ensure a task exists
         """

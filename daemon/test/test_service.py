@@ -80,7 +80,8 @@ class TestDaemon(micro_logger_unittest.TestCase):
     @unittest.mock.patch("micro_logger.getLogger", micro_logger_unittest.MockLogger)
     @unittest.mock.patch('relations_rest.Source', relations.unittest.MockSource)
     @unittest.mock.patch('redis.Redis', MockRedis)
-    def setUp(self):
+    @unittest.mock.patch('service.open', new_callable=unittest.mock.mock_open, read_data='{"token": "funspot", "guild": {"id": "1"}}')
+    def setUp(self, mock_open):
 
         self.daemon = service.Daemon()
 
@@ -88,13 +89,14 @@ class TestDaemon(micro_logger_unittest.TestCase):
     @unittest.mock.patch("micro_logger.getLogger", micro_logger_unittest.MockLogger)
     @unittest.mock.patch('relations_rest.Source', relations.unittest.MockSource)
     @unittest.mock.patch('redis.Redis', MockRedis)
-    def test___init__(self):
+    @unittest.mock.patch('service.open', new_callable=unittest.mock.mock_open, read_data='{"token": "funspot", "guild": {"id": "1"}}')
+    def test___init__(self, mock_open):
 
         daemon = service.Daemon()
 
         self.assertEqual(daemon.name, "discord-daemon")
         self.assertEqual(daemon.unifist, "ledger")
-        self.assertEqual(daemon.group, "daemon-discord")
+        self.assertEqual(daemon.group, "discord-daemon")
         self.assertEqual(daemon.group_id, "test")
 
         self.assertEqual(daemon.sleep, 7)
