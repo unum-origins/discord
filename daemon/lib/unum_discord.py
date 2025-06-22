@@ -387,7 +387,7 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
         if isinstance(what, dict):
             for key, value in what.items():
-                if key == "description":
+                if key == "description" and what.get("kind") != "private":
                     what[key] += title
                 else:
                     self.encode_title(what[key], title)
@@ -621,6 +621,9 @@ class OriginClient(discord.Client, unum_base.OriginSource):
                 if "source" in usage:
                     what["source"] = usage["source"]
 
+                if "help" in usage:
+                    what["help"] = usage["help"]
+
                 what["description"] = usage["description"]
                 what["usages"] = usage.get("usages", [
                     {
@@ -813,7 +816,8 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
             text = "♥️ *" + what["description"] + "*\n"
 
-            text += "\n" + what["help"]
+            if "help" in what:
+                text += "\n" + what["help"]
 
             text += "\nCommands:"
 
@@ -826,21 +830,61 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
             text = f'♥️ *{what["description"]}*'
 
+            if "help" in what:
+                text += "\n" + what["help"]
+
             if "examples" in what:
 
                 text += '\nexamples:'
 
                 for example in what["examples"]:
 
-                    text += f"\n- `{example['meme']}{what['values']['command']}"
+                    sources = [None]
+                    descriptions = {}
 
-                    if "args" in example:
-                        text += f" {example['args']}"
+                    if example.get("kind") == "private":
 
-                    text += '`'
+                        sources = what.get("apps", [])
 
-                    if "description" in example:
-                        text += (f"\n  - *{example['description']}*")
+                        if "origin" in what and what["origin"] != self.origin.who:
+                            sources.append(what["origin"])
+
+                    for source in sources:
+
+                        text += f"\n- `{example['meme']}{what['values']['command']}"
+
+                        if "channel" in example:
+                            text += f"#{example['channel']}"
+                        elif source:
+                            text += f".{source}"
+
+                        if "args" in example:
+                            text += f" {example['args']}"
+
+                        text += '`'
+
+                        if "description" in example:
+
+                            description = example['description']
+
+                            if "channel" in example:
+                                description += f" while not in {{channel:{example['channel']}}}"
+
+                            if source:
+
+                                origin = unum_ledger.Origin.one(who=source).retrieve(False)
+
+                                if origin:
+                                    description += f" {origin.meta__title}"
+
+                                app = unum_ledger.App.one(who=source).retrieve(False)
+
+                                if app:
+                                    description += f" {app.meta__title}"
+
+                                description += f" while in direct message <@{self.user.id}> (or anywhere else)"
+
+                            text += f"\n  - *{description}*"
 
             text += '\nusages:'
 
@@ -1371,19 +1415,16 @@ class OriginClient(discord.Client, unum_base.OriginSource):
             await self.command_join(what, meta, message)
         elif what["command"] == "leave":
             await self.command_leave(what, meta, message)
-        elif not self.is_active(what.get("entity_id")):
-            text = f'❗ not active - need to join fi rst'
-            await self.multi_send(channel, text, reference=message)
         else:
 
             app = unum_ledger.App.one(who=what.get("source")).retrieve(False)
 
-            if app and not unum_ledger.Herald.one(
+            if not self.is_active(what.get("entity_id")) or (app and not unum_ledger.Herald.one(
                 entity_id=what.get("entity_id"),
                 app_id=app.id,
                 status="active"
-            ).retrieve(False):
-                text = f'❗ not active - need to join fi rst'
+            ).retrieve(False)):
+                text = f'❗ not active - need to join first'
                 await self.multi_send(channel, text, reference=message)
             elif what["command"] == "scat":
                 await self.command_scat(what, meta, message)

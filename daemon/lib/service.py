@@ -25,35 +25,36 @@ WHO = "discord"
 META = """
 title: the Discord Origin
 description: Discord interface with this Unum.
-help: |
-  And Welcome to this Discord Origin, how this Discord server interfaces with thie Unum.
-
-  Everything here works via Commands. Commands that start with ? are questions abd ask me for information. Commands
-  that start with ! are actions, asking me to change something.
-
-  For help you can type `?help` or just `?` by itsel . To get more info on a command type `?help __command__`. Read
-  the command help fully. It'll explain the context of the command, what it does, and how to format arguments
-  correctly. Such training is required before being allowed to use a command. You will get a friendly request to
-  complete training, complete with the command to run.
-
-  Everytime you join an App, you'll get new Awards to accomplish. To see you reaming Awards to accomplish, type
-  `?award`. Using `?award` and `?help` this way should train you up on how to use all the awardures available to
-  you here.
-
-  Each channel has one or more Apps, each with its own set of Commands. If you message me privately, all commands
-  are avaiable. To narrow down a Command to a particular App, add the App name to the command via a '.'. For example,
-  to get just the help for the ledger, DM me `?help.ledger`. This also works in any channel.
 channel: unifist-unum
+help: |
+  And Welcome to this Discord Origin, how this Discord server interfaces with thie Unum. Everything here works via Commands. Commands that start with ? are questions abd ask me for information. Commands that start with ! are actions, asking me to change something.
+
+  For help you can type `?help` or just `?` by itself. To get more info on a command type ?help and the name of the command. Read the help fully.
+
+  Each channel has one or more Apps, each with its own set of Commands. If you message me privately, commands from multiple Apps are avaiable. To narrow down a Command to a particular App, add the App name to the command via a '.'. For example, to get just the help for the ledger, DM me `?help.ledger`. This also works in any channel.
 commands:
 - name: help
   description: Help for
-  requires: none
+  help: |
+    Help shows you how things work. Alone it'll list all commands avaialble. With a command, it'll tell you everything about using that command.
+
+    Each command has various usages. Each usage can take zero or more arguments. Each argument has a format. There are also example for each usage.
+
+    Simply asking for help automatically assigns you Awards to complete. For each command you ask for help, you'll receieve an Award for learning about that command. This is useful, because such awards aqre required to run commands.
   examples:
   - meme: '?'
     description: Lists all the commands for
   - meme: '?'
     args: help
-    description: Shows the usages of help
+    description: Shows the usages of help for
+  - meme: '?'
+    channel: unifist-unum
+    args: help
+    description: Shows in a different channel the usages of help for
+  - meme: '?'
+    kind: private
+    args: help
+    description: Shows in a private message (and anywhere else) the usages of help for
   usages:
   - name: general
     meme: '?'
@@ -67,15 +68,27 @@ commands:
       valids: []
 - name: scat
   description: Comment riff or poop, on
-  requires: none
+  help: |
+    Scat allows you to comment, riff, complain about anything. This process is eseential to an Unum. Everyone is an Onwer so everyone has a say about anything.
+
+    Scats can be assigned as Tasks, meaning someone is responsible for reading the issue, deciding whether to work on it, and ultimately communciating back to the originator what happened.
+
+    So if you have an issue, a question, a comment, Scat it, and it'll eventually get worked on.
   examples:
   - meme: '!'
     description: Record your concerns for
+    args: I don't like it
   - meme: '!'
     description: Record and assign your concerns for
-    args: task
+    args: task I don't like it and will do something about it
   - meme: '?'
     description: List all unaissgned scats for
+  - meme: '?'
+    channel: unifist-unum
+    description: List in a different channel all unaissgned scats for
+  - meme: '?'
+    kind: private
+    description: List in a private message (and anywhere else) all unaissgned scats for
   usages:
   - name: record
     meme: '!'
@@ -114,6 +127,22 @@ commands:
       format: duration
 - name: award
   description: List your Awards in
+  help: |
+    Awards track achievements, accomplishments that typically open up functionality to you. For example, each command you ask for help, you'll receieve an Award for learning about that command. This is useful, because such awards are required to run commands.
+
+    Awards are completed automatically when you perform them and you can assign Awards as Tasks, like Scats. This moves them from merely being something you can do to something you should do (by your command). The Task feature allows you to do this.
+  examples:
+  - meme: '?'
+    description: List not completed awards for
+  - meme: '?'
+    channel: unifist-unum
+    description: List in a different channel not completed awards for
+  - meme: '?'
+    kind: private
+    description: List in a private message (and anywhere else) all not completed awards for
+  - meme: '?'
+    description: List all awards for
+    args: all
   usages:
   - name: list_incomplete
     meme: '?'
@@ -127,6 +156,24 @@ commands:
       - all
 - name: task
   description: Manage your Tasks in
+  help: |
+    Tasks track todos, actions you've decided to do. You can take on an Apps Awards as Tasks. You can grab a random Scat as a Task. You can even QA an entire App or Origin, taking on running every command every which way for that App or Origin.
+
+    Tasks from awards are completed automatically when you perform them. These tasks are listed as bullet points since you can't interact with them.
+
+    Other Tasks, like those created from Scats or just created manually, have to be completed manually. They are listed as individual messages so you can react to them.
+  examples:
+  - meme: '?'
+    description: List not completed tasks for
+  - meme: '?'
+    channel: unifist-unum
+    description: List in a different channel not completed tasks for
+  - meme: '?'
+    kind: private
+    description: List in a private message (and anywhere else) all not completed tasks for
+  - meme: '?'
+    description: List all tasks for
+    args: all
   usages:
   - name: assign
     meme: '!'
@@ -148,12 +195,19 @@ commands:
       valids:
       - all
 - name: join
+  help: |
+    Joining allows you to interact with an App or Origin. Unums don't just automatically subscribe or bombard people with notifications. You have to agree to participate.
+
+    Joining is that agreement.
   meme: '!'
   description: Join
   requires: none
 - name: leave
+  help: |
+    Leaving severs the connection with an App or Origin. I won't actually delete any records, just inactivate your status.
+
+    You can always join again and not lose anything.
   meme: '!'
-  description: Leave
 """
 NAME = f"{WHO}-daemon"
 
