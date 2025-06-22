@@ -1337,17 +1337,25 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
         elif meme == "?":
 
+            manuals = []
+
             if usage == "list_incomplete":
 
-                text = ["♥️ your incomplete tasks are (♥️ to complete):"]
+                text = "♥️ your incomplete tasks are:"
 
                 if what.get("origin"):
                     for task in unum_ledger.Task.many(entity_id=entity_id, status__not_eq="done", what__source=what["origin"]):
-                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
+                        if task.what__fact:
+                            text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        else:
+                            manuals.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
                 for app in what.get("apps", []):
                     for task in unum_ledger.Task.many(entity_id=entity_id, status__not_eq="done", what__source=app):
-                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
+                        if task.what__fact:
+                            text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        else:
+                            manuals.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
             else:
 
@@ -1355,11 +1363,21 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
                 if what.get("origin"):
                     for task in unum_ledger.Task.many(entity_id=entity_id, what__source=what["origin"]):
-                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
+                        if task.what__fact:
+                            text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        else:
+                            manuals.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
 
                 for app in what.get("apps", []):
                     for task in unum_ledger.Task.many(entity_id=entity_id, what__source=app):
-                        text.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
+                        if task.what__fact:
+                            text += f"\n- {task.what__description} - {task.status} {TASKS[task.status]}"
+                        else:
+                            manuals.append(f"*task:{task.id} {task.what__description} - {task.status} {TASKS[task.status]}")
+
+            if manuals:
+                text += "\n(♥️ to complete):"
+                text = [text] + manuals
 
         await self.multi_send(channel, text, reference=message)
 
