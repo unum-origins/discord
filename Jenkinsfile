@@ -46,7 +46,10 @@ pipeline {
         }
         stage('push') {
             when {
-                branch "main"
+                anyOf {
+                    branch 'main';
+                    branch pattern: "*rc*", comparator: "GLOB"
+                }
             }
             stages {
                 stage('hash') {
