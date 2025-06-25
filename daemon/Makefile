@@ -1,7 +1,7 @@
 ACCOUNT?=$(shell cat ../ACCOUNT)
 IMAGE=unum-origins-discord-daemon
 VERSION?=dev
-SEMVER=?=$(VERSION)
+SEMVER?=$(VERSION)
 DEBUG_PORT=24437
 TTY=$(shell if tty -s; then echo "-it"; fi)
 VOLUMES=-v ${PWD}/lib/:/opt/service/lib/ \

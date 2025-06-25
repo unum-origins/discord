@@ -1,6 +1,6 @@
 VERSION?=$(shell cat VERSION)
 TILT_PORT=7637
-SEMVER=?=$(VERSION)
+SEMVER=$(VERSION)
 INSTALL=python:3.10.8-alpine3.16
 VOLUMES=-v ${PWD}/daemon/:/opt/service/daemon/ \
 		-v ${PWD}/VERSION:/opt/service/VERSION \
