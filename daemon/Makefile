@@ -1,6 +1,7 @@
 ACCOUNT?=$(shell cat ../ACCOUNT)
 IMAGE=unum-origins-discord-daemon
 VERSION?=dev
+SEMVER=?=$(VERSION)
 DEBUG_PORT=24437
 TTY=$(shell if tty -s; then echo "-it"; fi)
 VOLUMES=-v ${PWD}/lib/:/opt/service/lib/ \
@@ -12,7 +13,7 @@ ENVIRONMENT=-e PYTHONDONTWRITEBYTECODE=1 \
 			-e test="python -m unittest -v" \
 			-e debug="python -m ptvsd --host 0.0.0.0 --port 5678 --wait -m unittest -v"
 
-.PHONY: build shell debug test lint image push
+.PHONY: build shell debug test lint image push semver
 
 build:
 	docker build . -t $(ACCOUNT)/$(IMAGE):$(VERSION)
