@@ -33,15 +33,6 @@ pipeline {
                         }
                     }
                 }
-                stage('module') {
-                    stages {
-                        stage('setup') {
-                            steps {
-                                sh 'make setup'
-                            }
-                        }
-                    }
-                }
             }
         }
         stage('push') {

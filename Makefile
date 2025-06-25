@@ -20,13 +20,6 @@ down:
 	kubectx docker-desktop
 	tilt down
 
-setup:
-	docker run $(TTY) $(VOLUMES) $(INSTALL) sh -c "cp -r /opt/service /opt/install && \
-	apk add git && \
-	pip install git+https://github.com/unum-apps/ledger@0.1.3 && \
-	cd /opt/install/ && python setup.py install && \
-	python -m unum_discord"
-
 tag:
 	-git tag -a $(VERSION) -m "Version $(VERSION)"
 	git push origin --tags
