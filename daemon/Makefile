@@ -33,3 +33,8 @@ image: build
 
 push:
 	docker push $(ACCOUNT)/$(IMAGE):$(VERSION)
+
+semver:
+	docker pull $(ACCOUNT)/$(IMAGE):$(VERSION)
+	docker tag $(ACCOUNT)/$(IMAGE):$(VERSION) $(ACCOUNT)/$(IMAGE):$(SEMVER)
+	docker push $(ACCOUNT)/$(IMAGE):$(SEMVER)

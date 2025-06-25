@@ -31,6 +31,9 @@ tag:
 	-git tag -a $(VERSION) -m "Version $(VERSION)"
 	git push origin --tags
 
+semver:
+	cd daemon; VERSION=$(VERSION) SEMVER=$(SEMVER) make semver;
+
 untag:
 	-git tag -d $(VERSION)
 	git push origin ":refs/tags/$(VERSION)"
