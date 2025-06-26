@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: daemon
-        image: discord-daemon
+        image: unum-origins-discord-daemon
         imagePullPolicy: Always
         env:
         - name: PYTHONUNBUFFERED
