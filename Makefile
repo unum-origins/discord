@@ -5,7 +5,7 @@ INSTALL=python:3.10.8-alpine3.16
 VOLUMES=-v ${PWD}/daemon/:/opt/service/daemon/ \
 		-v ${PWD}/VERSION:/opt/service/VERSION \
 		-v ${PWD}/setup.py:/opt/service/setup.py
-.PHONY: secret up down setup tag semver untag
+.PHONY: secret up down tag semver untag
 
 secret:
 	mkdir -p secret
