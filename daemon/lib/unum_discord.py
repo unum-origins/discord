@@ -652,28 +652,6 @@ class OriginClient(discord.Client, unum_base.OriginSource):
 
                 what["error"] = f"channel required - try:\n- `?{command['name']}#channel`"
 
-            else:
-
-                award = f"command:help:{command['name']}#{what['channel']}"
-
-                if not unum_ledger.Award.one(
-                    entity_id=what.get("entity_id"),
-                    who=award,
-                    status="completed"
-                ).retrieve(None):
-                    what["error"] = f"training required - in {{channel:{channel}}} please ask:\n- `?help {command['name']}`"
-
-        elif command['name'] != "help":
-
-            award = f"command:help.{command['source']}:{command['name']}"
-
-            if not unum_ledger.Award.one(
-                entity_id=what.get("entity_id"),
-                who=award,
-                status="completed"
-            ).retrieve(None):
-                what["error"] = f"training required - please ask:\n- `?help.{command['source']} {command['name']}`"
-
     async def parse_ancestor(self, ancestor, what, meta):
         """
         Adds parent to the resource provider

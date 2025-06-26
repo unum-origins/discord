@@ -39,7 +39,7 @@ commands:
 
     Each command has various usages. Each usage can take zero or more arguments. Each argument has a format. There are also example for each usage.
 
-    Simply asking for help automatically assigns you Awards to complete. For each command you ask for help, you'll receieve an Award for learning about that command. This is useful, because such awards aqre required to run commands.
+    Simply asking for help automatically assigns you Awards to complete. For each command you ask for help, you'll receieve an Award for learning about that command.
   examples:
   - meme: '?'
     description: Lists all the commands for
@@ -127,7 +127,7 @@ commands:
 - name: award
   description: List your Awards in
   help: |
-    Awards track achievements, accomplishments that typically open up functionality to you. For example, each command you ask for help, you'll receieve an Award for learning about that command. This is useful, because such awards are required to run commands.
+    Awards track achievements, accomplishments that typically open up functionality to you. For example, each command you ask for help, you'll receieve an Award for learning about that command.
 
     Awards are completed automatically when you perform them and you can assign Awards as Tasks, like Scats. This moves them from merely being something you can do to something you should do (by your command). The Task feature allows you to do this.
   examples:
