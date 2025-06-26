@@ -1414,7 +1414,12 @@ class OriginClient(discord.Client, unum_base.OriginSource):
         elif what["command"] == "help":
             await self.command_help(what, meta, message)
         elif what["command"] == "join":
-            await self.command_join(what, meta, message)
+            if "ledger" not in what.get("apps", []) and not self.is_active(what.get("entity_id")):
+                text = '❗ not active - need to join {channel:unifist-unum} first'
+                await self.multi_send(channel, text, reference=message)
+            else:
+                await self.command_join(what, meta, message)
+
         elif what["command"] == "leave":
             await self.command_leave(what, meta, message)
         else:
